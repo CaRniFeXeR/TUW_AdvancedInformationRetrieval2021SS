@@ -140,3 +140,4 @@ cython_debug/
 ####### custom section
 
 .vscode/settings.json
+data/
