@@ -47,6 +47,32 @@ class TK(nn.Module):
         document_embeddings = self.word_embeddings(document)
 
         #todo
+        
+        ##### contextualization
+        #^t_i =t_i * alpha + context(t1:n)_i * (1- alpha) --> alpha controls the influence of contextualization --> is also learned
+
+        #query & document is processed separately --> learn parameters are shared
+
+        #1. positional embedding added --> p
+        #transformer(p) = MutliHead(FF(p)) + FF(p)       FF: two-layer fully connected non-linear activation
+        # 2 transformer layers
+
+
+        ####### intercation scoring
+
+        #1. query sequence and document sequence match in a single match-matrix
+        # M_ij = cosine_similarity(q_i,d_j)
+
+        #2. each entry in M is transformed with a set of RBF-kernels
+            # K^k_ij = exp(-(M_ij _ mu_k)^2 / (2\sigma^2))              ...mu & sigma are from the kenrel
+        #3. each kernel results in a kernel matrix K^k
+        #4. document dimension j is summed for each query term and kernel
+        #5a. log normalization
+            # log_b is applied on each query term before summing them up resulting in s^k_log
+        #5b. length normalization
+            # /document_length is applied on each query term before summing them up resulting in s^k_len
+        #6 kernel scores (one value per kernel) is weighted and summed up with simple linear layer (w_log, W_len)
+            # results in one scalar for log-normalized and length normalized kernels --> s_log & s_len
 
         return output
 
