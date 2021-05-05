@@ -5,6 +5,8 @@ import torch.nn as nn
 from torch.autograd import Variable
 
 from allennlp.modules.text_field_embedders import TextFieldEmbedder
+from allennlp.modules.matrix_attention.cosine_matrix_attention import CosineMatrixAttention 
+from allennlp.modules.transformer import TransformerStack
 
 
 class TK(nn.Module):
@@ -26,6 +28,11 @@ class TK(nn.Module):
         # static - kernel size & magnitude variables
         self.mu = Variable(torch.FloatTensor(self.kernel_mus(n_kernels)), requires_grad=False).view(1, 1, 1, n_kernels)
         self.sigma = Variable(torch.FloatTensor(self.kernel_sigmas(n_kernels)), requires_grad=False).view(1, 1, 1, n_kernels)
+
+        self.cosinematrix = CosineMatrixAttention()
+
+        self.transformerLayers = TransformerStack(num_hidden_layers  = n_layers, num_attention_heads  = n_tf_heads)
+
 
         #todo
 
@@ -50,27 +57,42 @@ class TK(nn.Module):
         
         ##### contextualization
         #^t_i =t_i * alpha + context(t1:n)_i * (1- alpha) --> alpha controls the influence of contextualization --> is also learned
+      
 
         #query & document is processed separately --> learn parameters are shared
 
         #1. positional embedding added --> p
-        #transformer(p) = MutliHead(FF(p)) + FF(p)       FF: two-layer fully connected non-linear activation
+          # todo include pad?
+
+          
+        
         # 2 transformer layers
 
+        #transformer(p) = MutliHead(FF(p)) + FF(p)       FF: two-layer fully connected non-linear activation
+          #todo add FF part
+        query_contextualized = self.transformerLayers(query_embeddings) 
+        document_contextualized = self.transformerLayers(document_embeddings)
 
         ####### intercation scoring
 
         #1. query sequence and document sequence match in a single match-matrix
         # M_ij = cosine_similarity(q_i,d_j)
+        cosine_matrix_m = self.cosinematrix.forward(query_contextualized, document_contextualized)
 
         #2. each entry in M is transformed with a set of RBF-kernels
-            # K^k_ij = exp(-(M_ij _ mu_k)^2 / (2\sigma^2))              ...mu & sigma are from the kenrel
-        #3. each kernel results in a kernel matrix K^k
-        #4. document dimension j is summed for each query term and kernel
+
+            
+            # K^k_ij = exp(-(M_ij _ mu_k)^2 / (2\sigma^2))              ...mu & sigma are from the kenel
+            #3. each kernel results in a kernel matrix K^k
+            kernel_matrises = torch.exp(- torch.pow(cosine_matrix_m - self.mu, 2) / (2 * torch.pow(self.sigma, 2)))
+            #4. document dimension j is summed for each query term and kernel
+            result_summed_document_axis = torch.sum(kernel_matrises, 2)
         #5a. log normalization
             # log_b is applied on each query term before summing them up resulting in s^k_log
+            log_result_summed_document_axis = torch.log_b(result_summed_document_axis)
         #5b. length normalization
             # /document_length is applied on each query term before summing them up resulting in s^k_len
+            #todo divded by doc_length
         #6 kernel scores (one value per kernel) is weighted and summed up with simple linear layer (w_log, W_len)
             # results in one scalar for log-normalized and length normalized kernels --> s_log & s_len
 
