@@ -33,6 +33,12 @@ class TK(nn.Module):
 
         self.transformerLayers = TransformerStack(num_hidden_layers  = n_layers, num_attention_heads  = n_tf_heads)
 
+         self.linear_Slog = nn.Linear(n_kernels, 1, bias=False)
+         self.linear_Slen = nn.Linear(n_kernels, 1, bias=False)
+
+         self.alpha = nn.parameter.Parameter(t.tensor(0.5)) # alpha --> to control amount contextualization
+         self.beta = nn.parameter.Parameter(t.tensor(0.5)) # beta --> to control amount of s_log on the score
+         self.gamma = nn.parameter.Parameter(t.tensor(0.5)) # gamma --> to control amount of s_len on the score
 
         #todo
 
@@ -57,7 +63,7 @@ class TK(nn.Module):
         
         ##### contextualization
         #^t_i =t_i * alpha + context(t1:n)_i * (1- alpha) --> alpha controls the influence of contextualization --> is also learned
-      
+        #todo include alpha
 
         #query & document is processed separately --> learn parameters are shared
 
@@ -84,17 +90,28 @@ class TK(nn.Module):
             
             # K^k_ij = exp(-(M_ij _ mu_k)^2 / (2\sigma^2))              ...mu & sigma are from the kenel
             #3. each kernel results in a kernel matrix K^k
-            kernel_matrises = torch.exp(- torch.pow(cosine_matrix_m - self.mu, 2) / (2 * torch.pow(self.sigma, 2)))
+        kernel_matrises = torch.exp(- torch.pow(cosine_matrix_m - self.mu, 2) / (2 * torch.pow(self.sigma, 2)))
             #4. document dimension j is summed for each query term and kernel
-            result_summed_document_axis = torch.sum(kernel_matrises, 2)
+        result_summed_document_axis = torch.sum(kernel_matrises, 2)
         #5a. log normalization
             # log_b is applied on each query term before summing them up resulting in s^k_log
-            log_result_summed_document_axis = torch.log_b(result_summed_document_axis)
+        log_result_summed_document_axis = torch.log_b(result_summed_document_axis)
+        log_result_k = torch.sum(log_result_summed_document_axis, 1)
         #5b. length normalization
             # /document_length is applied on each query term before summing them up resulting in s^k_len
-            #todo divded by doc_length
+        document_length = document_embeddings.size(0)
+        normed_result_summed_document_axis = result_summed_document_axis / document_length
+        normed_result_k = torch.sum(normed_result_summed_document_axis, 1)
+
         #6 kernel scores (one value per kernel) is weighted and summed up with simple linear layer (w_log, W_len)
             # results in one scalar for log-normalized and length normalized kernels --> s_log & s_len
+
+        s_log = self.linear_Slog(log_result_k)
+        s_len = self.linear_Slen(normed_result_k)
+
+        #7 final score of the query-document pair as weighted sum of s_log & s_len
+        ouput = s_log * self.alpha + s_len * self.beta
+
 
         return output
 
