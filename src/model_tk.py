@@ -9,6 +9,7 @@ from allennlp.modules.matrix_attention.cosine_matrix_attention import CosineMatr
 from allennlp_models.rc.modules.seq2seq_encoders.multi_head_self_attention import MultiHeadSelfAttention
 from allennlp.nn.util import add_positional_features
 from allennlp.modules.feedforward import FeedForward
+from allennlp.nn.activations import Activation
 from allennlp.modules.layer_norm import LayerNorm
 
 
@@ -52,16 +53,17 @@ class TK(nn.Module):
                 MultiHeadSelfAttention(
                     num_heads=n_tf_heads,
                     input_dim=n_tf_dim,
-                    attention_dim=32,
-                    values_dim=32
+                    attention_dim=30,
+                    values_dim=30
                 ))
+        self.layer_norm = LayerNorm(n_tf_dim)
 
         self.linear_Slog = nn.Linear(n_kernels, 1, bias=False)
         self.linear_Slen = nn.Linear(n_kernels, 1, bias=False)
 
-        self.alpha = nn.parameter.Parameter(t.tensor(0.5))  # alpha --> to control amount contextualization
-        self.beta = nn.parameter.Parameter(t.tensor(0.5))  # beta --> to control amount of s_log on the score
-        self.gamma = nn.parameter.Parameter(t.tensor(0.5))  # gamma --> to control amount of s_len on the score
+        self.alpha = nn.parameter.Parameter(torch.tensor(0.5))  # alpha --> to control amount contextualization
+        self.beta = nn.parameter.Parameter(torch.tensor(0.5))  # beta --> to control amount of s_log on the score
+        self.gamma = nn.parameter.Parameter(torch.tensor(0.5))  # gamma --> to control amount of s_len on the score
 
         # todo
 
@@ -78,9 +80,9 @@ class TK(nn.Module):
         document_pad_oov_mask = (document["tokens"] > 0).float()
 
         # shape: (batch, query_max,emb_dim)
-        query_embeddings = self.word_embeddings(query)
+        query_embeddings = self.word_embeddings({"tokens" : query})
         # shape: (batch, document_max,emb_dim)
-        document_embeddings = self.word_embeddings(document)
+        document_embeddings = self.word_embeddings({"tokens" : document})
 
         # todo
         
@@ -107,8 +109,8 @@ class TK(nn.Module):
             ff_document_contextualized = ff(document_contextualized)
             attenion_query_contextualized = mutlihead(ff_query_contextualized)
             attenion_document_contextualized = mutlihead(ff_document_contextualized)
-            query_contextualized = layer_norm(attenion_query_contextualized + ff_query_contextualized)
-            document_contextualized = layer_norm(attenion_document_contextualized + ff_document_contextualized)
+            query_contextualized = self.layer_norm(attenion_query_contextualized + ff_query_contextualized)
+            document_contextualized = self.layer_norm(attenion_document_contextualized + ff_document_contextualized)
 
         # intercation scoring
 
@@ -118,11 +120,16 @@ class TK(nn.Module):
 
         # 2. each entry in M is transformed with a set of RBF-kernels
 
+
+
         # K^k_ij = exp(-(M_ij _ mu_k)^2 / (2\sigma^2))              ...mu & sigma are from the kenel
         # 3. each kernel results in a kernel matrix K^k
         kernel_matrises = torch.exp(- torch.pow(cosine_matrix_m - self.mu, 2) / (2 * torch.pow(self.sigma, 2)))
         # 4. document dimension j is summed for each query term and kernel
         result_summed_document_axis = torch.sum(kernel_matrises, 2)
+
+        #The kernel models need masking after the kernels -> the padding 0's will become non-zero, because of the kernel (but when summed up again will distort the output)
+
         # 5a. log normalization
         # log_b is applied on each query term before summing them up resulting in s^k_log
         log_result_summed_document_axis = torch.log_b(result_summed_document_axis)
