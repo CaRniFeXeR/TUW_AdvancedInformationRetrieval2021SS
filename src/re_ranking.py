@@ -17,12 +17,14 @@ from model_tk import *
 
 # change paths to your data directory
 config = {
-    "vocab_directory": "../data/allen_vocab_lower_10",
-    "pre_trained_embedding": "../data/glove.42B.300d.txt",
-    "model": "knrm",
-    "train_data": "../data/triples.train.tsv",
-    "validation_data": "../data/tuples.validation.tsv",
-    "test_data":"../data/tuples.test.tsv",
+    "vocab_directory": "data/allen_vocab_lower_10",
+    "pre_trained_embedding": "data/glove.42B.300d.txt",
+    "model": "tk",
+    "train_data": "data/triples.train.tsv",
+    "validation_data": "data/tuples.validation.tsv",
+    "test_data":"data/tuples.test.tsv",
+    "onGPU" : False,
+    "train_batch_size": 32
 }
 
 #
@@ -58,13 +60,45 @@ print('Network:', model)
 _triple_reader = IrTripleDatasetReader(lazy=True, max_doc_length=180, max_query_length=30)
 _triple_reader = _triple_reader.read(config["train_data"])
 _triple_reader.index_with(vocab)
-loader = PyTorchDataLoader(_triple_reader, batch_size=32)
+loader = PyTorchDataLoader(_triple_reader, batch_size=config["train_batch_size"])
+
+#activate training mode on model
+model.train(mode = True)
+
+#loss = max(0, s_nonrel - s_rel + 1) .... called marginrankingloss
+marginRankingLoss = torch.nn.MarginRankingLoss(margin=1, reduction='mean') #.cuda(cuda_device)
+#since we always want a "big" distance between unrelevant and releveant documents we can use Ones for each pair as targetValue
+targetValues = torch.ones(config["train_batch_size"]) #.cuda(cuda_device)
+
+#todo set learningrate and weight decay
+optimizer = torch.optim.Adam(model.parameters())
 
 for epoch in range(2):
 
+    trainLossList = []
+
     for batch in Tqdm.tqdm(loader):
-        # todo train loop
-        pass
+        #todo include GPU support
+        
+        #first forward pass query + relevant doc
+        output_score_relevant = model(batch["query_tokens"]["tokens"], batch["doc_pos_tokens"]["tokens"])
+        #second forward pass query + non-relevant doc
+        output_score_unrelevant = model(batch["query_tokens"]["tokens"], batch["doc_neg_tokens"]["tokens"])
+
+        current_batch_size = batch["query_tokens"]["tokens"]["tokens"].shape[0]
+        if current_batch_size != config["traning_batch_size"]:
+            targetValues = torch.ones(current_batch_size) #.cuda(cuda_device)
+        
+        batch_loss = marginRankingLoss(output_score_relevant, output_score_unrelevant, targetValues)
+        batch_loss.backward()
+        optimizer.step()
+        current_loss = batch_loss.detach().numpy()
+        trainLossList.append(current_loss)
+        print(f"current loss: {current_loss:.3f}")
+
+    meanLoss = np.mean(trainLossArray)
+    stdLoss = np.std(trainLossArray)
+    print('epoch {}\n train loss: {:.3f} ± {:.3f}'.format(epoch +1, meanLoss, stdLoss))
 
 
 #
@@ -75,9 +109,13 @@ for epoch in range(2):
 _tuple_reader = IrLabeledTupleDatasetReader(lazy=True, max_doc_length=180, max_query_length=30)
 _tuple_reader = _tuple_reader.read(config["test_data"])
 _tuple_reader.index_with(vocab)
-loader = PyTorchDataLoader(_tuple_reader, batch_size=128)
+eval_loader = PyTorchDataLoader(_tuple_reader, batch_size=128)
 
-for batch in Tqdm.tqdm(loader):
+#set model in eval mode
+model.train(mode = False)
+
+for batch in Tqdm.tqdm(eval_loader):
     # todo test loop 
+
     # todo evaluation
     pass
