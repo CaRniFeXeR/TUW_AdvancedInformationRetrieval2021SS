@@ -24,7 +24,7 @@ config = {
     "validation_data": "data/tuples.validation.tsv",
     "test_data":"data/tuples.test.tsv",
     "onGPU" : False,
-    "train_batch_size": 32
+    "traning_batch_size": 32
 }
 
 #
@@ -60,7 +60,7 @@ print('Network:', model)
 _triple_reader = IrTripleDatasetReader(lazy=True, max_doc_length=180, max_query_length=30)
 _triple_reader = _triple_reader.read(config["train_data"])
 _triple_reader.index_with(vocab)
-loader = PyTorchDataLoader(_triple_reader, batch_size=config["train_batch_size"])
+loader = PyTorchDataLoader(_triple_reader, batch_size=config["traning_batch_size"])
 
 #activate training mode on model
 model.train(mode = True)
@@ -68,7 +68,7 @@ model.train(mode = True)
 #loss = max(0, s_nonrel - s_rel + 1) .... called marginrankingloss
 marginRankingLoss = torch.nn.MarginRankingLoss(margin=1, reduction='mean') #.cuda(cuda_device)
 #since we always want a "big" distance between unrelevant and releveant documents we can use Ones for each pair as targetValue
-targetValues = torch.ones(config["train_batch_size"]) #.cuda(cuda_device)
+targetValues = torch.ones(config["traning_batch_size"]) #.cuda(cuda_device)
 
 #todo set learningrate and weight decay
 optimizer = torch.optim.Adam(model.parameters())
