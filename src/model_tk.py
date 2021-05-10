@@ -118,6 +118,8 @@ class TK(nn.Module):
         # M_ij = cosine_similarity(q_i,d_j)
         cosine_matrix_m = self.cosinematrix.forward(query_contextualized, document_contextualized)
 
+        #todo explain why unsqueez is needed
+        cosine_matrix_m = cosine_matrix_m.unsqueeze(-1) 
         # 2. each entry in M is transformed with a set of RBF-kernels
 
 
@@ -132,7 +134,7 @@ class TK(nn.Module):
 
         # 5a. log normalization
         # log_b is applied on each query term before summing them up resulting in s^k_log
-        log_result_summed_document_axis = torch.log_b(result_summed_document_axis)
+        log_result_summed_document_axis = torch.log2(result_summed_document_axis)
         log_result_k = torch.sum(log_result_summed_document_axis, 1)
         # 5b. length normalization
         # /document_length is applied on each query term before summing them up resulting in s^k_len
@@ -147,7 +149,7 @@ class TK(nn.Module):
         s_len = self.linear_Slen(normed_result_k)
 
         # 7 final score of the query-document pair as weighted sum of s_log & s_len
-        ouput = s_log * self.alpha + s_len * self.beta
+        output = s_log * self.alpha + s_len * self.beta
 
         return output
 
