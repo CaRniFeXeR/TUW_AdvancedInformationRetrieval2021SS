@@ -1,4 +1,4 @@
-from typing import Dict, Iterator, List
+from typing import Dict, Iterator, List, Optional, Union
 
 import torch
 import torch.nn as nn
@@ -11,6 +11,7 @@ from allennlp.nn.util import add_positional_features
 from allennlp.modules.feedforward import FeedForward
 from allennlp.nn.activations import Activation
 from allennlp.modules.layer_norm import LayerNorm
+from torch.types import Device
 
 
 class TK(nn.Module):
@@ -36,7 +37,7 @@ class TK(nn.Module):
         self.cosinematrix = CosineMatrixAttention()
 
         # Contextualization
-        self.ffLayers : List[FeedForward] = []
+        self.ffLayers: List[FeedForward] = []
         self.attentionHeadLayers: List[MultiHeadSelfAttention] = []
         for i in range(n_layers):
             self.ffLayers.append(
@@ -44,10 +45,9 @@ class TK(nn.Module):
                     n_tf_dim,
                     activations=[Activation.by_name("relu")(), Activation.by_name("linear")()],
                     hidden_dims=[n_tf_dim, n_tf_dim],
-                    num_layers = 2
+                    num_layers=2
                 )
             )
-
 
             self.attentionHeadLayers.append(
                 MultiHeadSelfAttention(
@@ -80,12 +80,11 @@ class TK(nn.Module):
         document_pad_oov_mask = (document["tokens"] > 0).float()
 
         # shape: (batch, query_max,emb_dim)
-        query_embeddings = self.word_embeddings({"tokens" : query})
+        query_embeddings = self.word_embeddings({"tokens": query})
         # shape: (batch, document_max,emb_dim)
-        document_embeddings = self.word_embeddings({"tokens" : document})
+        document_embeddings = self.word_embeddings({"tokens": document})
 
         # todo
-        
 
         # contextualization
         # ^t_i =t_i * alpha + context(t1:n)_i * (1- alpha) --> alpha controls the influence of contextualization --> is also learned
@@ -118,11 +117,9 @@ class TK(nn.Module):
         # M_ij = cosine_similarity(q_i,d_j)
         cosine_matrix_m = self.cosinematrix.forward(query_contextualized, document_contextualized)
 
-        #todo explain why unsqueez is needed
-        cosine_matrix_m = cosine_matrix_m.unsqueeze(-1) 
+        # todo explain why unsqueez is needed
+        cosine_matrix_m = cosine_matrix_m.unsqueeze(-1)
         # 2. each entry in M is transformed with a set of RBF-kernels
-
-
 
         # K^k_ij = exp(-(M_ij _ mu_k)^2 / (2\sigma^2))              ...mu & sigma are from the kenel
         # 3. each kernel results in a kernel matrix K^k
@@ -130,11 +127,11 @@ class TK(nn.Module):
         # 4. document dimension j is summed for each query term and kernel
         result_summed_document_axis = torch.sum(kernel_matrises, 2)
 
-        #The kernel models need masking after the kernels -> the padding 0's will become non-zero, because of the kernel (but when summed up again will distort the output)
+        # The kernel models need masking after the kernels -> the padding 0's will become non-zero, because of the kernel (but when summed up again will distort the output)
 
         # 5a. log normalization
         # log_b is applied on each query term before summing them up resulting in s^k_log
-        log_result_summed_document_axis = torch.log2(result_summed_document_axis)
+        log_result_summed_document_axis = torch.log2(torch.clamp(result_summed_document_axis, min=1e-10)) #log2(0) = -inf we therefore need to clamp zero values to a very low values in order to a result != -inf
         log_result_k = torch.sum(log_result_summed_document_axis, 1)
         # 5b. length normalization
         # /document_length is applied on each query term before summing them up resulting in s^k_len
@@ -184,3 +181,14 @@ class TK(nn.Module):
 
         l_sigma += [0.5 * bin_size] * (n_kernels - 1)
         return l_sigma
+
+    def moveModelToGPU(self) -> nn.Module:
+
+        self.mu = self.mu.cuda()
+        self.sigma = self.sigma.cuda()
+
+        for ff, mutlihead in zip(self.ffLayers, self.attentionHeadLayers):
+            ff.cuda()
+            mutlihead.cuda()
+
+        return self.cuda()
