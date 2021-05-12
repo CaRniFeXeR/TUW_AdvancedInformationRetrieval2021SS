@@ -1,3 +1,4 @@
+from torch.functional import Tensor
 from model_tk import *
 from model_conv_knrm import *
 from model_knrm import *
@@ -10,6 +11,33 @@ from allennlp.common import Params, Tqdm
 from allennlp.common.util import prepare_environment
 from allennlp.data.dataloader import PyTorchDataLoader
 prepare_environment(Params({}))  # sets the seeds to be fixed
+
+
+def modelPredictOnTripleBatchData(model: nn.Module, batch: dict, targetValues : Tensor, config: dict, onGPU: bool):
+
+    # include GPU support
+    if onGPU:
+        batch["query_tokens"]["tokens"]["tokens"] = batch["query_tokens"]["tokens"]["tokens"].to(device="cuda")
+        batch["doc_pos_tokens"]["tokens"]["tokens"] = batch["doc_pos_tokens"]["tokens"]["tokens"].to(device="cuda")
+        batch["doc_neg_tokens"]["tokens"]["tokens"] = batch["doc_neg_tokens"]["tokens"]["tokens"].to(device="cuda")
+
+    # first forward pass query + relevant doc
+    output_score_relevant = model(batch["query_tokens"]["tokens"], batch["doc_pos_tokens"]["tokens"])
+    # second forward pass query + non-relevant doc
+    output_score_unrelevant = model(batch["query_tokens"]["tokens"], batch["doc_neg_tokens"]["tokens"])
+
+    current_batch_size = batch["query_tokens"]["tokens"]["tokens"].shape[0]
+    if current_batch_size != targetValues.shape[0]:
+        targetValues = torch.ones(current_batch_size)
+        if onGPU:
+            targetValues = targetValues.cuda()
+
+    return output_score_relevant, output_score_unrelevant, targetValues
+
+def calculateMRR(queries, queryDocumentPairedResult):
+    #todo calculate Mean Reciprocal Rank
+    # MRR = sum(for each query 1 / rankOfFirstRelevantDocument) / n_queries
+    pass
 
 
 # change paths to your data directory
@@ -61,8 +89,7 @@ _triple_reader = _triple_reader.read(config["train_data"])
 _triple_reader.index_with(vocab)
 loader = PyTorchDataLoader(_triple_reader, batch_size=config["traning_batch_size"])
 
-# activate training mode on model
-model.train(mode=True)
+
 onGPU = config["onGPU"]
 
 if onGPU:
@@ -83,25 +110,12 @@ optimizer = torch.optim.Adam(model.parameters())
 
 for epoch in range(2):
 
+    # activate training mode on model
+    model.train(mode=True)
     trainLossList = []
 
     for batch in Tqdm.tqdm(loader):
-        # include GPU support
-        if onGPU:
-            batch["query_tokens"]["tokens"]["tokens"] = batch["query_tokens"]["tokens"]["tokens"].to(device="cuda")
-            batch["doc_pos_tokens"]["tokens"]["tokens"] = batch["doc_pos_tokens"]["tokens"]["tokens"].to(device="cuda")
-            batch["doc_neg_tokens"]["tokens"]["tokens"] = batch["doc_neg_tokens"]["tokens"]["tokens"].to(device="cuda")
-
-        # first forward pass query + relevant doc
-        output_score_relevant = model(batch["query_tokens"]["tokens"], batch["doc_pos_tokens"]["tokens"])
-        # second forward pass query + non-relevant doc
-        output_score_unrelevant = model(batch["query_tokens"]["tokens"], batch["doc_neg_tokens"]["tokens"])
-
-        current_batch_size = batch["query_tokens"]["tokens"]["tokens"].shape[0]
-        if current_batch_size != config["traning_batch_size"]:
-            targetValues = torch.ones(current_batch_size)
-            if onGPU:
-                targetValues = targetValues.cuda()
+        output_score_relevant, output_score_unrelevant, targetValues = modelPredictOnTripleBatchData(model, batch, targetValues, config, onGPU)
 
         batch_loss = marginRankingLoss(output_score_relevant, output_score_unrelevant, targetValues)
         batch_loss.backward()
@@ -111,11 +125,24 @@ for epoch in range(2):
         else:
             current_loss = batch_loss.detach().numpy()
         trainLossList.append(current_loss)
-        print(f"current loss: {current_loss:.3f}")
+        print(f"                                                   current loss: {current_loss:.3f}")
 
     meanLoss = np.mean(trainLossList)
     stdLoss = np.std(trainLossList)
     print('epoch {}\n train loss: {:.3f} ± {:.3f}'.format(epoch + 1, meanLoss, stdLoss))
+
+    # ValidationSet
+    _tuple_reader = IrLabeledTupleDatasetReader(lazy=True, max_doc_length=180, max_query_length=30)
+    _tuple_reader = _tuple_reader.read(config["validation_data"])
+    _tuple_reader.index_with(vocab)
+    validation_loader = PyTorchDataLoader(_tuple_reader, batch_size=128)
+
+    for batch in Tqdm.tqdm(validation_loader):
+        #todo implement forward pass for validation
+        # output_score_relevant, output_score_unrelevant, targetValues = modelPredictOnTripleBatchData(model, batch, config, onGPU)
+
+    # set model in eval mode
+model.train(mode=False)
 
 
 #
@@ -126,12 +153,12 @@ for epoch in range(2):
 _tuple_reader = IrLabeledTupleDatasetReader(lazy=True, max_doc_length=180, max_query_length=30)
 _tuple_reader = _tuple_reader.read(config["test_data"])
 _tuple_reader.index_with(vocab)
-eval_loader = PyTorchDataLoader(_tuple_reader, batch_size=128)
+testdata_loader = PyTorchDataLoader(_tuple_reader, batch_size=128)
 
 # set model in eval mode
 model.train(mode=False)
 
-for batch in Tqdm.tqdm(eval_loader):
+for batch in Tqdm.tqdm(testdata_loader):
     # todo test loop
 
     # todo evaluation
