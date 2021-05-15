@@ -75,9 +75,11 @@ class TK(nn.Module):
         # -------------------------------------------------------
 
         # shape: (batch, query_max)
-        query_pad_oov_mask = (query["tokens"] > 0).float()  # > 1 to also mask oov terms
+        query_pad_oov_mask_bool = query["tokens"] > 0
+        query_pad_oov_mask = query_pad_oov_mask_bool.float()  # > 1 to also mask oov terms
         # shape: (batch, doc_max)
-        document_pad_oov_mask = (document["tokens"] > 0).float()
+        document_pad_oov_mask_bool = document["tokens"] > 0
+        document_pad_oov_mask = document_pad_oov_mask_bool.float()
 
         # shape: (batch, query_max,emb_dim)
         query_embeddings = self.word_embeddings({"tokens": query})
@@ -101,11 +103,14 @@ class TK(nn.Module):
         query_contextualized = query_embeddings_pos
         document_contextualized = document_embeddings_pos
 
+        # n transformer blocks
         for ff, mutlihead in zip(self.ffLayers, self.attentionHeadLayers):
+            # feedforward layer
             ff_query_contextualized = ff(query_contextualized)
             ff_document_contextualized = ff(document_contextualized)
-            attenion_query_contextualized = mutlihead(ff_query_contextualized)
-            attenion_document_contextualized = mutlihead(ff_document_contextualized)
+            # mutlihead attention (provide padding mask)
+            attenion_query_contextualized = mutlihead(ff_query_contextualized, query_pad_oov_mask_bool)
+            attenion_document_contextualized = mutlihead(ff_document_contextualized, document_pad_oov_mask_bool)
             query_contextualized = self.layer_norm(attenion_query_contextualized + ff_query_contextualized)
             document_contextualized = self.layer_norm(attenion_document_contextualized + ff_document_contextualized)
 
@@ -148,7 +153,8 @@ class TK(nn.Module):
         s_len = self.linear_Slen(normed_result_k)
 
         # 7 final score of the query-document pair as weighted sum of s_log & s_len
-        output = s_log * self.alpha + s_len * self.beta
+        # beta & gamma controll the magnitude of influce of s_log and s_len on the putput
+        output = s_log * self.beta + s_len * self.gamma
 
         return output
 
