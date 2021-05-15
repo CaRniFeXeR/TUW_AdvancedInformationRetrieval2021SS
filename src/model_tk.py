@@ -87,9 +87,7 @@ class TK(nn.Module):
         # todo
 
         # contextualization
-        # ^t_i =t_i * alpha + context(t1:n)_i * (1- alpha) --> alpha controls the influence of contextualization --> is also learned
-        # todo include alpha
-
+    
         # query & document is processed separately --> learn parameters are shared
 
         # 1. positional embedding added --> p
@@ -111,11 +109,15 @@ class TK(nn.Module):
             query_contextualized = self.layer_norm(attenion_query_contextualized + ff_query_contextualized)
             document_contextualized = self.layer_norm(attenion_document_contextualized + ff_document_contextualized)
 
+        # ^t_i =t_i * alpha + context(t1:n)_i * (1- alpha) --> alpha controls the influence of contextualization --> is also learned
+        query_embedded_contextualized = (self.alpha * query_embeddings) + ( 1- self.alpha) * query_contextualized
+        document_embedded_contextualized = (self.alpha * document_embeddings_pos) + ( 1- self.alpha) * document_contextualized
+
         # intercation scoring
 
         # 1. query sequence and document sequence match in a single match-matrix
         # M_ij = cosine_similarity(q_i,d_j)
-        cosine_matrix_m = self.cosinematrix.forward(query_contextualized, document_contextualized)
+        cosine_matrix_m = self.cosinematrix.forward(query_embedded_contextualized, document_embedded_contextualized)
 
         # todo explain why unsqueez is needed
         cosine_matrix_m = cosine_matrix_m.unsqueeze(-1)
