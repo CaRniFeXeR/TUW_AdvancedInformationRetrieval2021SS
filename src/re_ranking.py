@@ -79,7 +79,7 @@ class MinStdCritera(EarlyStoppingCriteria):
             result = True
             self._reason = f"window_size '{self.window_size}' loss std: '{np.std(self.__lossList):.3f}' min_std: '{self.min_std}'"
 
-        return
+        return result
 
 
 class MaxIterationCriteria(EarlyStoppingCriteria):
@@ -135,6 +135,8 @@ class MinDeltaCriteria(EarlyStoppingCriteria):
 
         if self.best_score == None or self.best_score > loss:
             self.best_score = loss
+
+        return result
 
 
 class EarlyStoppingWatcher:
@@ -193,7 +195,7 @@ class EarlyStoppingWatcher:
     @property
     def reason(self) -> str:
 
-        result = f"strikes: {self.n_strike}"
+        result = f"strikes: {self.n_strike} "
 
         for criteria in self.criteriaList:
             result += criteria.reason
