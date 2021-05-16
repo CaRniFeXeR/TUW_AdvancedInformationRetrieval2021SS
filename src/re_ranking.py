@@ -287,7 +287,7 @@ config = {
     "test_data": "data/msmarco_tuples.test.tsv",
     "qrels_data": "data/msmarco_qrels.txt",
     "onGPU": False,
-    "traning_batch_size": 150,
+    "traning_batch_size": 128,
     "eval_batch_size": 256,
     "validate_after_n_iterations": 250
 }
@@ -398,6 +398,8 @@ for epoch in range(2):
                 print(f"early stopping reason: {earlyStoppingWatchter.reason}")
                 earlyStoppingReached = True
                 break
+            
+            model.train(mode=True)
 
     meanLoss = np.mean(trainLossList)
     stdLoss = np.std(trainLossList)
