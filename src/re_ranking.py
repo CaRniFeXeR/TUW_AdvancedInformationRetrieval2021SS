@@ -1,3 +1,7 @@
+from re import purge
+import re
+from typing import Tuple
+from numpy import ndarray
 from torch.functional import Tensor
 from model_tk import *
 from model_conv_knrm import *
@@ -10,10 +14,14 @@ import torch
 from allennlp.common import Params, Tqdm
 from allennlp.common.util import prepare_environment
 from allennlp.data.dataloader import PyTorchDataLoader
+from core_metrics import calculate_metrics_plain, load_qrels, unrolled_to_ranked_result
 prepare_environment(Params({}))  # sets the seeds to be fixed
 
 
-def modelPredictOnTripleBatchData(model: nn.Module, batch: dict, targetValues : Tensor, config: dict, onGPU: bool):
+def modelForwardPassOnTripleBatchData(model: nn.Module, batch: dict, targetValues: Tensor, onGPU: bool):
+    # batch["query_tokens"]["tokens"]["tokens"] --> query_tokens
+    # batch["doc_pos_tokens"]["tokens"]["tokens"] --> tokens of relevent documents
+    # batch["doc_neg_tokens"]["tokens"]["tokens"] --> tokens of non-relevant documents
 
     # include GPU support
     if onGPU:
@@ -34,10 +42,46 @@ def modelPredictOnTripleBatchData(model: nn.Module, batch: dict, targetValues : 
 
     return output_score_relevant, output_score_unrelevant, targetValues
 
-def calculateMRR(queries, queryDocumentPairedResult):
-    #todo calculate Mean Reciprocal Rank
-    # MRR = sum(for each query 1 / rankOfFirstRelevantDocument) / n_queries
-    pass
+
+def modelForwardPassOnTupleBatchData(model: nn.Module, batch: dict, onGPU: bool):
+    # batch["query_tokens"] --> query tokens
+    # batch["doc_tokens"] --> document tokens
+
+    if onGPU:
+        batch["query_tokens"]["tokens"]["tokens"] = batch["query_tokens"]["tokens"]["tokens"].to(device="cuda")
+        batch["doc_tokens"]["tokens"]["tokens"] = batch["doc_tokens"]["tokens"]["tokens"].to(device="cuda")
+
+    return model(batch["query_tokens"]["tokens"], batch["doc_tokens"]["tokens"])
+
+
+def evaluateModelOnBatch(model: nn.Module, batch: dict, resultDict: Dict[int, List[Tuple[int, float]]], onGPU: bool) -> dict:
+    # batch["query_tokens"] --> query tokens
+    # batch["doc_tokens"] --> document tokens
+    # batch["query_ids"] --> query ids
+    # batch["doc_ids"] --> document ids
+
+    output = modelForwardPassOnTupleBatchData(model, batch, onGPU)
+
+    for idx, query_id in enumerate(batch["query_id"]):
+        if not query_id in resultDict:
+            resultDict[query_id] = []
+        resultDict[query_id].append((batch["doc_id"][idx], float(output[idx].cpu())))
+
+    return resultDict
+
+
+def evaluateModel(model: nn.Module, tupleLoader: PyTorchDataLoader, relevanceLabels: dict, onGPU: bool):
+
+    resultDict: Dict[int, List[Tuple[int, float]]] = {}
+
+    for batch in Tqdm.tqdm(tupleLoader):
+        resultDict = evaluateModelOnBatch(model, batch, resultDict, onGPU)
+
+    # reorder documents by query according to result score
+    ranked_result = unrolled_to_ranked_result(resultDict)
+
+    # calculate ir metrics
+    return calculate_metrics_plain(ranked_result, relevanceLabels)
 
 
 # change paths to your data directory
@@ -46,10 +90,12 @@ config = {
     "pre_trained_embedding": "data/glove.42B.300d.txt",
     "model": "tk",
     "train_data": "data/triples.train.tsv",
-    "validation_data": "data/tuples.validation.tsv",
-    "test_data": "data/tuples.test.tsv",
+    "validation_data": "data/msmarco_tuples.validation.tsv",
+    "test_data": "data/msmarco_queries.test.tsv",
+    "qrels_data": "data/msmarco_qrels.txt",
     "onGPU": False,
-    "traning_batch_size": 32
+    "traning_batch_size": 64,
+    "eval_batch_size" : 256,
 }
 
 config["onGPU"] = torch.cuda.is_available()
@@ -105,6 +151,9 @@ targetValues = torch.ones(config["traning_batch_size"])
 if onGPU:
     targetValues = targetValues.cuda()
 
+# load labels
+qrels = load_qrels(config["qrels_data"])
+
 # todo set learningrate and weight decay
 optimizer = torch.optim.Adam(model.parameters())
 
@@ -115,7 +164,7 @@ for epoch in range(2):
     trainLossList = []
 
     for batch in Tqdm.tqdm(loader):
-        output_score_relevant, output_score_unrelevant, targetValues = modelPredictOnTripleBatchData(model, batch, targetValues, config, onGPU)
+        output_score_relevant, output_score_unrelevant, targetValues = modelForwardPassOnTripleBatchData(model, batch, targetValues, onGPU)
 
         batch_loss = marginRankingLoss(output_score_relevant, output_score_unrelevant, targetValues)
         batch_loss.backward()
@@ -125,24 +174,23 @@ for epoch in range(2):
         else:
             current_loss = batch_loss.detach().numpy()
         trainLossList.append(current_loss)
-        print(f"                                                   current loss: {current_loss:.3f}")
+        print(f"                                                                    current loss: {current_loss:.3f}")
 
     meanLoss = np.mean(trainLossList)
     stdLoss = np.std(trainLossList)
-    print('epoch {}\n train loss: {:.3f} ± {:.3f}'.format(epoch + 1, meanLoss, stdLoss))
+    print(f'epoch {epoch + 1}\n train loss: {meanLoss:.3f} ± {stdLoss:.3f}')
 
     # ValidationSet
+    model.train(mode=False)
     _tuple_reader = IrLabeledTupleDatasetReader(lazy=True, max_doc_length=180, max_query_length=30)
     _tuple_reader = _tuple_reader.read(config["validation_data"])
     _tuple_reader.index_with(vocab)
-    validation_loader = PyTorchDataLoader(_tuple_reader, batch_size=128)
+    validation_loader = PyTorchDataLoader(_tuple_reader, batch_size=config["eval_batch_size"])
 
-    for batch in Tqdm.tqdm(validation_loader):
-        #todo implement forward pass for validation
-        # output_score_relevant, output_score_unrelevant, targetValues = modelPredictOnTripleBatchData(model, batch, config, onGPU)
+    result = evaluateModel(model, validation_loader, relevanceLabels=qrels, onGPU=onGPU)
+    print(f"MRR@10 : {result['MRR@10']:.3f}")
 
     # set model in eval mode
-model.train(mode=False)
 
 
 #
@@ -153,13 +201,9 @@ model.train(mode=False)
 _tuple_reader = IrLabeledTupleDatasetReader(lazy=True, max_doc_length=180, max_query_length=30)
 _tuple_reader = _tuple_reader.read(config["test_data"])
 _tuple_reader.index_with(vocab)
-testdata_loader = PyTorchDataLoader(_tuple_reader, batch_size=128)
+testdata_loader = PyTorchDataLoader(_tuple_reader, batch_size=config["eval_batch_size"])
 
-# set model in eval mode
 model.train(mode=False)
 
-for batch in Tqdm.tqdm(testdata_loader):
-    # todo test loop
-
-    # todo evaluation
-    pass
+result = evaluateModel(model, testdata_loader, relevanceLabels=qrels, onGPU=onGPU)
+print(f"MRR@10 : {result['MRR@10']:.3f}")
