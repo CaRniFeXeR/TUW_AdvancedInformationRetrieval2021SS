@@ -25,13 +25,11 @@ prepare_environment(Params({}))  # sets the seeds to be fixed
 class EarlyStoppingCriteria(ABC):
 
     def __init__(self, name: str):
-        self._reason = ""
         self.name = name
         self.reset()
 
-    @abstractmethod
     def reset(self):
-        pass
+        self._reason = ""
 
     @abstractmethod
     def check(self, loss: float) -> bool:
@@ -67,6 +65,7 @@ class MinStdCritera(EarlyStoppingCriteria):
 
     def reset(self):
         self.__lossList: List[float] = []
+        super().reset()
 
     def check(self, loss: float) -> bool:
 
@@ -97,6 +96,7 @@ class MaxIterationCriteria(EarlyStoppingCriteria):
 
     def reset(self):
         self.n_iteration = 0
+        super().reset()
 
     def check(self, loss: float) -> bool:
         result = False
@@ -125,6 +125,7 @@ class MinDeltaCriteria(EarlyStoppingCriteria):
 
     def reset(self):
         self.best_score = None
+        super().reset()
 
     def check(self, loss: float) -> bool:
         result = False
