@@ -5,6 +5,7 @@ from typing import Tuple, Type
 from numpy import isin, ndarray
 from torch._C import Value
 from torch.functional import Tensor
+from model_fk import FK
 from model_tk import *
 from model_conv_knrm import *
 from model_knrm import *
@@ -281,22 +282,23 @@ def evaluateModel(model: nn.Module, tupleLoader: PyTorchDataLoader, relevanceLab
 
 # region [Config & wandb]
 
+
 # change paths to your data directory
 config = {
     "vocab_directory": "data/allen_vocab_lower_10",
     "pre_trained_embedding": "data/glove.42B.300d.txt",
-    "model": "tk",
+    "model": "fk",
     "train_data": "data/triples.train.tsv",
     "validation_data": "data/msmarco_tuples.validation.tsv",
     "test_data": "data/msmarco_tuples.test.tsv",
     "qrels_data": "data/msmarco_qrels.txt",
     "onGPU": False,
-    "n_training_epochs" : 2,
+    "n_training_epochs": 2,
     "traning_batch_size": 128,
     "eval_batch_size": 256,
     "validation_interval": 250,
-    "use_wandb" : True,
-    "wandb_entity" : "floko",
+    "use_wandb": True,
+    "wandb_entity": "floko",
     "wandb_log_interval": 10
 
 }
@@ -308,7 +310,7 @@ use_wandb = config["use_wandb"]
 wandb_config = {}
 
 if use_wandb:
-    #todo refactor wandb config use
+    # todo refactor wandb config use
     wandb.init(project='air-2021SS', entity=config["wandb_entity"])
     wandb_config = wandb.config
     wandb_config["model"] = config["model"]
@@ -336,7 +338,9 @@ if config["model"] == "knrm":
 elif config["model"] == "conv_knrm":
     model = Conv_KNRM(word_embedder, n_grams=3, n_kernels=11, conv_out_dim=128)
 elif config["model"] == "tk":
-    model = TK(word_embedder, n_kernels=11, n_layers=2, n_tf_dim=300, n_tf_heads=10, tf_projection_dim= 40)
+    model = TK(word_embedder, n_kernels=11, n_layers=2, n_tf_dim=300, n_tf_heads=10, tf_projection_dim=40)
+elif config["model"] == "fk":
+    model = FK(word_embedder, n_kernels=11, n_layers=6, n_fnet_dim=300)
 
 if use_wandb and hasattr(model, "fill_wandb_config"):
     model.fill_wandb_config(wandb_config)
@@ -409,10 +413,9 @@ for epoch in range(config["n_training_epochs"]):
         print(f"                                                                    current loss: {current_loss:.3f}")
 
         if use_wandb and (i + 1) % config["wandb_log_interval"] == 0:
-            wandb.log({"batch_loss" : current_loss, "global_step" : total_batch_count})
-       
+            wandb.log({"batch_loss": current_loss, "global_step": total_batch_count})
 
-        if  (i + 1) % config["validation_interval"] == 0:
+        if (i + 1) % config["validation_interval"] == 0:
             # validate only after n_iterations
             # ValidationSet
             model.train(mode=False)
@@ -429,13 +432,11 @@ for epoch in range(config["n_training_epochs"]):
                 print(f"early stopping reason: {earlyStoppingWatchter.reason}")
                 earlyStoppingReached = True
                 break
-            
+
             model.train(mode=True)
 
-            if use_wandb: 
-                wandb.log({"validiation_MRR@10" : result['MRR@10'], "global_step" : total_batch_count})
-
-       
+            if use_wandb:
+                wandb.log({"validiation_MRR@10": result['MRR@10'], "global_step": total_batch_count})
 
     meanLoss = np.mean(trainLossList)
     stdLoss = np.std(trainLossList)
@@ -450,8 +451,8 @@ for epoch in range(config["n_training_epochs"]):
 
     result = evaluateModel(model, validation_loader, relevanceLabels=qrels, onGPU=onGPU)
     print(f"validationset MRR@10 : {result['MRR@10']:.3f}")
-    if use_wandb: 
-                wandb.log({"validiation_MRR@10" : result['MRR@10'], "global_step" : total_batch_count})
+    if use_wandb:
+        wandb.log({"validiation_MRR@10": result['MRR@10'], "global_step": total_batch_count})
 
     # set model in eval mode
 
@@ -471,7 +472,7 @@ model.train(mode=False)
 
 result = evaluateModel(model, testdata_loader, relevanceLabels=qrels, onGPU=onGPU)
 print(f"testset Score MRR@10 : {result['MRR@10']:.3f}")
-if use_wandb: 
-    wandb.log({"test_MRR@10" : result['MRR@10'], "global_step" : total_batch_count})
+if use_wandb:
+    wandb.log({"test_MRR@10": result['MRR@10'], "global_step": total_batch_count})
 
 # endregion
