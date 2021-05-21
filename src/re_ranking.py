@@ -336,7 +336,7 @@ if config["model"] == "knrm":
 elif config["model"] == "conv_knrm":
     model = Conv_KNRM(word_embedder, n_grams=3, n_kernels=11, conv_out_dim=128)
 elif config["model"] == "tk":
-    model = TK(word_embedder, n_kernels=11, n_layers=2, n_tf_dim=300, n_tf_heads=10, tf_projection_dim= 30)
+    model = TK(word_embedder, n_kernels=11, n_layers=2, n_tf_dim=300, n_tf_heads=10, tf_projection_dim= 40)
 
 if use_wandb and hasattr(model, "fill_wandb_config"):
     model.fill_wandb_config(wandb_config)
@@ -423,7 +423,7 @@ for epoch in range(config["n_training_epochs"]):
 
             result = evaluateModel(model, validation_loader, relevanceLabels=qrels, onGPU=onGPU)
             print(f"validationset MRR@10 : {result['MRR@10']:.3f}")
-            target_metric = result['MRR@10']
+            target_metric = 1 - result['MRR@10']
             if earlyStoppingWatchter.watchLoss(target_metric):
                 print("early stopping criteria reached")
                 print(f"early stopping reason: {earlyStoppingWatchter.reason}")
