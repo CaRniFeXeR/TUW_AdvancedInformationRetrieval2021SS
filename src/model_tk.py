@@ -1,4 +1,5 @@
 from typing import Dict, Iterator, List, Optional, Union
+from numpy import isin
 
 import torch
 import torch.nn as nn
@@ -24,15 +25,38 @@ class TK(nn.Module):
                  n_kernels: int,
                  n_layers: int,
                  n_tf_dim: int,
-                 n_tf_heads: int):
+                 n_tf_heads: int,
+                 tf_projection_dim: int):
 
         super(TK, self).__init__()
 
+        if not isinstance(word_embeddings, TextFieldEmbedder):
+            raise TypeError("word_ebeddings must be a TextFieldEmbedder")
+
+        if not isinstance(n_kernels, int):
+            raise TypeError("n_kernels must be a int")
+
+        if not isinstance(n_layers, int):
+            raise TypeError("n_layers must be a int")
+
+        if not isinstance(n_tf_dim, int):
+            raise TypeError("n_tf_dim must be a int")
+
+        if not isinstance(n_tf_heads, int):
+            raise TypeError("n_tf_heads must be a int")
+
+        if not isinstance(tf_projection_dim, int):
+            raise TypeError("tf_projection_dim must be a int")
+
         self.word_embeddings = word_embeddings
+        self.n_kernels = n_kernels
+        self.n_tf_heads = n_tf_heads
+        self.n_tf_dim = n_tf_dim
+        self.tf_projection_dim = tf_projection_dim
 
         # static - kernel size & magnitude variables
-        self.mu = Variable(torch.FloatTensor(self.kernel_mus(n_kernels)), requires_grad=False).view(1, 1, 1, n_kernels)
-        self.sigma = Variable(torch.FloatTensor(self.kernel_sigmas(n_kernels)), requires_grad=False).view(1, 1, 1, n_kernels)
+        self.mu = Variable(torch.FloatTensor(self.kernel_mus(self.n_kernels)), requires_grad=False).view(1, 1, 1, self.n_kernels)
+        self.sigma = Variable(torch.FloatTensor(self.kernel_sigmas(self.n_kernels)), requires_grad=False).view(1, 1, 1, self.n_kernels)
 
         self.cosinematrix = CosineMatrixAttention()
 
@@ -40,35 +64,33 @@ class TK(nn.Module):
         # n_layers of transformers stored in a List
         self.ffLayers: List[FeedForward] = []
         self.attentionHeadLayers: List[MultiHeadSelfAttention] = []
-        self.normLayers : List[LayerNorm] = []
+        self.normLayers: List[LayerNorm] = []
         for i in range(n_layers):
             self.ffLayers.append(
                 FeedForward(
-                    n_tf_dim,
+                    self.n_tf_dim,
                     activations=[Activation.by_name("relu")(), Activation.by_name("linear")()],
-                    hidden_dims=[n_tf_dim, n_tf_dim],
+                    hidden_dims=[self.n_tf_dim, self.n_tf_dim],
                     num_layers=2
                 )
             )
 
             self.attentionHeadLayers.append(
                 MultiHeadSelfAttention(
-                    num_heads=n_tf_heads,
-                    input_dim=n_tf_dim,
-                    attention_dim=30,
-                    values_dim=30
+                    num_heads=self.n_tf_heads,
+                    input_dim=self.n_tf_dim,
+                    attention_dim=self.tf_projection_dim,
+                    values_dim=self.tf_projection_dim
                 ))
             self.normLayers.append(LayerNorm(n_tf_dim))
 
-        self.linear_Slog = nn.Linear(n_kernels, 1, bias=False)
-        self.linear_Slen = nn.Linear(n_kernels, 1, bias=False)
+        self.linear_Slog = nn.Linear(self.n_kernels, 1, bias=False)
+        self.linear_Slen = nn.Linear(self.n_kernels, 1, bias=False)
 
         # should be value between 0 and 1
         self.alpha = nn.parameter.Parameter(torch.tensor(0.5))  # alpha --> to control amount contextualization
         self.beta = nn.parameter.Parameter(torch.tensor(0.5))  # beta --> to control amount of s_log on the score
         self.gamma = nn.parameter.Parameter(torch.tensor(0.5))  # gamma --> to control amount of s_len on the score
-
-        # todo
 
     def forward(self, query: Dict[str, torch.Tensor], document: Dict[str, torch.Tensor]) -> torch.Tensor:
         # pylint: disable=arguments-differ
@@ -90,10 +112,8 @@ class TK(nn.Module):
         # shape: (batch, document_max,emb_dim)
         document_embeddings = self.word_embeddings({"tokens": document})
 
-        # todo
-
         # contextualization
-    
+
         # query & document is processed separately --> learn parameters are shared
 
         # 1. positional embedding added --> p
@@ -120,13 +140,13 @@ class TK(nn.Module):
             document_contextualized = layer_norm(attenion_document_contextualized + ff_document_contextualized)
 
         # ^t_i =t_i * alpha + context(t1:n)_i * (1- alpha) --> alpha controls the influence of contextualization --> is also learned
-        query_embedded_contextualized =(self.alpha * query_embeddings) + ( 1- self.alpha) * query_contextualized
-        document_embedded_contextualized = (self.alpha * document_embeddings_pos) + ( 1- self.alpha) * document_contextualized
+        query_embedded_contextualized = (self.alpha * query_embeddings) + (1 - self.alpha) * query_contextualized
+        document_embedded_contextualized = (self.alpha * document_embeddings_pos) + (1 - self.alpha) * document_contextualized
 
         # the contextualizations adds values to the words that are only padded (therefore we need to remove the values again by multipyling with the paddding masks)
         query_embedded_contextualized = query_embedded_contextualized * query_pad_oov_mask.unsqueeze(-1)
         document_embedded_contextualized = document_embedded_contextualized * document_pad_oov_mask.unsqueeze(-1)
-        #since we kept the shape intact through out the transformer part have the following shape for the contextulized embeddings
+        # since we kept the shape intact through out the transformer part have the following shape for the contextulized embeddings
         #query_embedded_contextualized: (batch_size, query_len, embedding_dim)
         #document_embedded_contextualized: (batch_size, document_len, embedding_dim)
 
@@ -139,7 +159,7 @@ class TK(nn.Module):
         # cosine matrix m: (batch_size, query_len, doc_len, 1) = (batch_size, 14, 180, 1)
         cosine_matrix_m = self.cosinematrix.forward(query_embedded_contextualized, document_embedded_contextualized)
 
-        #since we now work on values per query term and document term we also need a mask that indicate this padding values in this interaction matrix
+        # since we now work on values per query term and document term we also need a mask that indicate this padding values in this interaction matrix
         #query_by_doc_mask: (batch_size, query_len, document_len)
         query_by_doc_mask = torch.bmm(query_pad_oov_mask.unsqueeze(-1), document_pad_oov_mask.unsqueeze(-1).transpose(-1, -2))
 
@@ -154,10 +174,10 @@ class TK(nn.Module):
         # kernel_matrises: (batch_size, query_len, doc_len, n_kernels) = (batch_size, 14, 180, 11)
         kernel_matrises = torch.exp(- torch.pow(cosine_matrix_m - self.mu, 2) / (2 * torch.pow(self.sigma, 2)))
 
-        #masking needed after the kernel 
+        # masking needed after the kernel
         query_by_doc_mask_view = query_by_doc_mask.unsqueeze(-1)
         kernel_matrises = kernel_matrises * query_by_doc_mask_view
-        
+
         # 4. document dimension j is summed for each query term and kernel
         # result_summed_document_axis: (batch_size, query_len, n_kernels) = (batch_size, 14, 11)
         # because doc is in the 3rd dimension we use torch.sum(m, 2)
@@ -167,16 +187,16 @@ class TK(nn.Module):
 
         # 5a. log normalization
         # log_b is applied on each query term before summing them up resulting in s^k_log
-        #log2(0) = -inf we therefore need to clamp zero values to a very low values in order to a result != -inf
-        log_result_summed_document_axis = torch.log2(torch.clamp(result_summed_document_axis, min=1e-10)) 
+        # log2(0) = -inf we therefore need to clamp zero values to a very low values in order to a result != -inf
+        log_result_summed_document_axis = torch.log2(torch.clamp(result_summed_document_axis, min=1e-10))
         #log_result_k: (batch_size, n_kernel) = (batch_size, 11)
         # since we sumed over all query terms we retrive now one value per kernel
         log_result_k = torch.sum(log_result_summed_document_axis, 1)
         # 5b. length normalization
         # /document_length is applied on each query term before summing them up resulting in s^k_len
-        document_length = document_embeddings.shape[1] #doc_leng 180 in our case
+        document_length = document_embeddings.shape[1]  # doc_leng 180 in our case
         normed_result_summed_document_axis = result_summed_document_axis / document_length
-         #normed_result_k: (batch_size, n_kernel) = (batch_size, 11)
+        #normed_result_k: (batch_size, n_kernel) = (batch_size, 11)
         # since we sumed over all query terms we retrive now one value per kernel
         normed_result_k = torch.sum(normed_result_summed_document_axis, 1)
 
@@ -236,3 +256,10 @@ class TK(nn.Module):
             layernrom.cuda()
 
         return self.cuda()
+
+    def fill_wandb_config(self, config: dict):
+
+        config["n_kernels"] = self.n_kernels
+        config["n_tf_heads"] = self.n_tf_heads
+        config["n_tf_dim"] = self.n_tf_dim
+        config["tf_projection_dim"] = self.tf_projection_dim

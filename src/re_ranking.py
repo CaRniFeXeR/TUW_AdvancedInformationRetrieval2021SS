@@ -336,7 +336,10 @@ if config["model"] == "knrm":
 elif config["model"] == "conv_knrm":
     model = Conv_KNRM(word_embedder, n_grams=3, n_kernels=11, conv_out_dim=128)
 elif config["model"] == "tk":
-    model = TK(word_embedder, n_kernels=11, n_layers=2, n_tf_dim=300, n_tf_heads=10)
+    model = TK(word_embedder, n_kernels=11, n_layers=2, n_tf_dim=300, n_tf_heads=10, tf_projection_dim= 30)
+
+if use_wandb and hasattr(model, "fill_wandb_config"):
+    model.fill_wandb_config(wandb_config)
 
 
 # todo optimizer, loss
