@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from re import purge
-import re
+import wandb
 from typing import Tuple, Type
 from numpy import isin, ndarray
 from torch._C import Value
@@ -19,7 +19,7 @@ from allennlp.data.dataloader import PyTorchDataLoader
 from core_metrics import calculate_metrics_plain, load_qrels, unrolled_to_ranked_result
 prepare_environment(Params({}))  # sets the seeds to be fixed
 
-# region EarlyStopping
+# region [EarlyStopping]
 
 
 class EarlyStoppingCriteria(ABC):
@@ -205,7 +205,7 @@ class EarlyStoppingWatcher:
 
 # endregion
 
-# region model ForwardPass
+# region [Model ForwardPass]
 
 
 def modelForwardPassOnTripleBatchData(model: nn.Module, batch: dict, targetValues: Tensor, onGPU: bool):
@@ -245,7 +245,7 @@ def modelForwardPassOnTupleBatchData(model: nn.Module, batch: dict, onGPU: bool)
 
 # endregion
 
-# region Model Evaluation
+# region [Model Evaluation]
 
 
 def evaluateModelOnBatch(model: nn.Module, batch: dict, resultDict: Dict[int, List[Tuple[int, float]]], onGPU: bool) -> dict:
@@ -279,6 +279,7 @@ def evaluateModel(model: nn.Module, tupleLoader: PyTorchDataLoader, relevanceLab
 
 # endregion
 
+# region [Config & wandb]
 
 # change paths to your data directory
 config = {
@@ -290,12 +291,32 @@ config = {
     "test_data": "data/msmarco_tuples.test.tsv",
     "qrels_data": "data/msmarco_qrels.txt",
     "onGPU": False,
+    "n_training_epochs" : 2,
     "traning_batch_size": 128,
     "eval_batch_size": 256,
-    "validate_after_n_iterations": 250
+    "validation_interval": 250,
+    "use_wandb" : True,
+    "wandb_entity" : "floko",
+    "wandb_log_interval": 10
+
 }
 
 config["onGPU"] = torch.cuda.is_available()
+onGPU = config["onGPU"]
+
+use_wandb = config["use_wandb"]
+wandb_config = {}
+
+if use_wandb:
+    #todo refactor wandb config use
+    wandb.init(project='air-2021SS', entity=config["wandb_entity"])
+    wandb_config = wandb.config
+    wandb_config["model"] = config["model"]
+    wandb_config["validation_data"] = config["validation_data"]
+    wandb_config["test_data"] = config["test_data"]
+    wandb_config["train_data"] = config["train_data"]
+
+# endregion
 
 #
 # data loading
@@ -332,9 +353,6 @@ _triple_reader = _triple_reader.read(config["train_data"])
 _triple_reader.index_with(vocab)
 loader = PyTorchDataLoader(_triple_reader, batch_size=config["traning_batch_size"])
 
-
-onGPU = config["onGPU"]
-
 if onGPU:
     if hasattr(model, "moveModelToGPU"):
         model = model.moveModelToGPU()
@@ -361,8 +379,9 @@ earlyStoppingWatchter = EarlyStoppingWatcher(patience=5) \
     .addCriteria(MinStdCritera(min_std=0.001, window_size=40))
 
 earlyStoppingReached = False
+total_batch_count = 0
 
-for epoch in range(2):
+for epoch in range(config["n_training_epochs"]):
 
     if earlyStoppingReached:
         break
@@ -372,6 +391,8 @@ for epoch in range(2):
     trainLossList = []
 
     for i, batch in enumerate(Tqdm.tqdm(loader)):
+        total_batch_count += 1
+
         output_score_relevant, output_score_unrelevant, targetValues = modelForwardPassOnTripleBatchData(model, batch, targetValues, onGPU)
 
         batch_loss = marginRankingLoss(output_score_relevant, output_score_unrelevant, targetValues)
@@ -384,7 +405,11 @@ for epoch in range(2):
         trainLossList.append(current_loss)
         print(f"                                                                    current loss: {current_loss:.3f}")
 
-        if  (i + 1) % config["validate_after_n_iterations"] == 0:
+        if use_wandb and (i + 1) % config["wandb_log_interval"] == 0:
+            wandb.log({"batch_loss" : current_loss, "global_step" : total_batch_count})
+       
+
+        if  (i + 1) % config["validation_interval"] == 0:
             # validate only after n_iterations
             # ValidationSet
             model.train(mode=False)
@@ -404,6 +429,11 @@ for epoch in range(2):
             
             model.train(mode=True)
 
+            if use_wandb: 
+                wandb.log({"validiation_MRR@10" : result['MRR@10'], "global_step" : total_batch_count})
+
+       
+
     meanLoss = np.mean(trainLossList)
     stdLoss = np.std(trainLossList)
     print(f'epoch {epoch + 1}\n train loss: {meanLoss:.3f} ± {stdLoss:.3f}')
@@ -417,9 +447,12 @@ for epoch in range(2):
 
     result = evaluateModel(model, validation_loader, relevanceLabels=qrels, onGPU=onGPU)
     print(f"validationset MRR@10 : {result['MRR@10']:.3f}")
+    if use_wandb: 
+                wandb.log({"validiation_MRR@10" : result['MRR@10'], "global_step" : total_batch_count})
 
     # set model in eval mode
 
+# region [Evaluation]
 
 #
 # eval (duplicate for validation inside train loop - but rename "loader", since
@@ -435,3 +468,7 @@ model.train(mode=False)
 
 result = evaluateModel(model, testdata_loader, relevanceLabels=qrels, onGPU=onGPU)
 print(f"testset Score MRR@10 : {result['MRR@10']:.3f}")
+if use_wandb: 
+    wandb.log({"test_MRR@10" : result['MRR@10'], "global_step" : total_batch_count})
+
+# endregion
