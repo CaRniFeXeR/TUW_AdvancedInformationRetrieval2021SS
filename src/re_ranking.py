@@ -287,7 +287,7 @@ def evaluateModel(model: nn.Module, tupleLoader: PyTorchDataLoader, relevanceLab
 config = {
     "vocab_directory": "data/allen_vocab_lower_10",
     "pre_trained_embedding": "data/glove.42B.300d.txt",
-    "model": "fk",
+    "model": "tk",
     "train_data": "data/triples.train.tsv",
     "validation_data": "data/msmarco_tuples.validation.tsv",
     "test_data": "data/msmarco_tuples.test.tsv",
@@ -297,7 +297,8 @@ config = {
     "traning_batch_size": 128,
     "eval_batch_size": 256,
     "validation_interval": 250,
-    "learning_rate" : 0.0002,
+    "learning_rate" : 0.0001,
+    "weight_decay" : 0.001,
     "use_wandb": True,
     "wandb_entity": "floko",
     "wandb_log_interval": 10
@@ -319,6 +320,7 @@ if use_wandb:
     wandb_config["test_data"] = config["test_data"]
     wandb_config["train_data"] = config["train_data"]
     wandb_config["learning_rate"] = config["learning_rate"]
+    wandb_config["weight_decay"] = config["weight_decay"]
 
 # endregion
 
@@ -340,7 +342,7 @@ if config["model"] == "knrm":
 elif config["model"] == "conv_knrm":
     model = Conv_KNRM(word_embedder, n_grams=3, n_kernels=11, conv_out_dim=128)
 elif config["model"] == "tk":
-    model = TK(word_embedder, n_kernels=11, n_layers=2, n_tf_dim=300, n_tf_heads=10, tf_projection_dim=32)
+    model = TK(word_embedder, n_kernels=11, n_layers=2, n_tf_dim=300, n_tf_heads=11, tf_projection_dim=33)
 elif config["model"] == "fk":
     model = FK(word_embedder, n_kernels=11, n_layers=12, n_fnet_dim=300)
 
@@ -385,10 +387,10 @@ for p_name, par in model.named_parameters():
         paramsToTrain.append(par)
 
 # todo set learningrate and weight decay
-optimizer = torch.optim.Adam(paramsToTrain, lr=config["learning_rate"])
+optimizer = torch.optim.Adam(paramsToTrain, lr=config["learning_rate"], weight_decay = config["weight_decay"])
 
 # early stopping
-earlyStoppingWatchter = EarlyStoppingWatcher(patience=5) \
+earlyStoppingWatchter = EarlyStoppingWatcher(patience=10) \
     .addCriteria(MaxIterationCriteria(50000)) \
     .addCriteria(MinDeltaCriteria(0.001)) \
     .addCriteria(MinStdCritera(min_std=0.001, window_size=40))
