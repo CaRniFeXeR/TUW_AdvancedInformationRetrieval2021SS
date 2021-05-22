@@ -14,6 +14,20 @@ from allennlp.modules.layer_norm import LayerNorm
 from torch.types import Device
 from torch.fft import fftn
 
+class FNetFeedForward(nn.Module):
+    def __init__(self, dim_hidden, expensionFactor : int):
+        super().__init__()
+        self.dense_1 = nn.Linear(dim_hidden, expensionFactor*dim_hidden)
+        self.dense_2 = nn.Linear(expensionFactor*dim_hidden, dim_hidden)
+        self.gelu = nn.GELU()
+        # self.dropout = nn.Dropout(p=0.1)
+
+    def forward(self, x):
+        x = self.dense_1(x)
+        x = self.gelu(x)
+        x = self.dense_2(x)
+        # x = self.dropout(x)
+        return x
 
 class FNetBlock(nn.Module):
 
@@ -23,27 +37,27 @@ class FNetBlock(nn.Module):
         # return torch.fft2(x, dim=(-1, -2)).real
         return fftn(x, dim=(-1, -2)).real
 
-    def __init__(self, dim : int, n_ff_layer : int): # n_ff_hidden_dim : int
+    def __init__(self, dim : int, expensionFactor : int): # n_ff_hidden_dim : int
         super().__init__()
         self.dim = dim
         self.norm1 = nn.LayerNorm(self.dim)
         self.norm2 = nn.LayerNorm(self.dim)
-        #todo maybe later use hidden dim
-        self.ff = FeedForward(dim, n_ff_layer, dim,  activations=Activation.by_name("linear")())
+        self.ff = FNetFeedForward(dim, expensionFactor= expensionFactor)
 
     def forward(self, x):
-        residual = x
-        x = FNetBlock.fourier_transform(x)
-        x = self.norm1(x + residual)
-        residual = x
-        x = self.ff(x)
-        out = self.norm2(x + residual)
-        return out
+        
+        dft_output = FNetBlock.fourier_transform(x)
+        dft_output_normed = self.norm1(dft_output + x)
+        x = dft_output_normed
+
+        dft_output = FNetBlock.fourier_transform(x)
+        output = self.norm1(dft_output + x)
+        return output
 
 
 class FK(nn.Module):
     '''
-    FK Model is not named by my initials instead it is mix between TK Model and FNET. The TK Model Architecture is mostly preserved with the only difference
+    FK Model is not named by my initials instead it is a mix between TK Model and FNet. The TK Model Architecture is mostly preserved with the only difference
     that instead of self attention Fourier Transformation is used.
     TK Paper: S. Hofstätter, M. Zlabinger, and A. Hanbury 2020. Interpretable & Time-Budget-Constrained Contextualization for Re-Ranking. In Proc. of ECAI 
     FNet Paper: J. Lee-Thorp, J. Ainslie, I. Eckstein, S. Ontanon 2021. FNet: Mixing Tokens with Fourier Transforms https://arxiv.org/abs/2105.03824
@@ -72,31 +86,43 @@ class FK(nn.Module):
         self.word_embeddings = word_embeddings
         self.n_kernels = n_kernels
         self.n_fnet_dim = n_fnet_dim
+        self.n_layers = n_layers
 
         # static - kernel size & magnitude variables
         self.mu = Variable(torch.FloatTensor(self.kernel_mus(self.n_kernels)), requires_grad=False).view(1, 1, 1, self.n_kernels)
         self.sigma = Variable(torch.FloatTensor(self.kernel_sigmas(self.n_kernels)), requires_grad=False).view(1, 1, 1, self.n_kernels)
 
+        self.mixer = nn.Parameter(torch.full([1,1,1], 0.5, dtype=torch.float32, requires_grad=True))
+
         self.cosinematrix = CosineMatrixAttention()
 
         # Contextualization
         # n_layers of transformers stored in a List
-        self.fNetBlocks: List[FNetBlock] = []
+        self.fNetBlocks: nn.ModuleList[FNetBlock] = []
         for i in range(n_layers):
             self.fNetBlocks.append(
                 FNetBlock(
                     self.n_fnet_dim,
-                    n_ff_layer=2
+                    expensionFactor= 4
                 )
             )
 
         self.linear_Slog = nn.Linear(self.n_kernels, 1, bias=False)
         self.linear_Slen = nn.Linear(self.n_kernels, 1, bias=False)
 
+        # init with small weights, otherwise the dense output is way to high for the tanh -> resulting in loss == 1 all the time
+        torch.nn.init.uniform_(self.linear_Slog.weight, -0.014, 0.014)  # inits taken from matchzoo
+        torch.nn.init.uniform_(self.linear_Slen.weight, -0.014, 0.014)  # inits taken from matchzoo
+
         # should be value between 0 and 1
-        self.alpha = nn.parameter.Parameter(torch.tensor(0.5))  # alpha --> to control amount contextualization
-        self.beta = nn.parameter.Parameter(torch.tensor(0.5))  # beta --> to control amount of s_log on the score
-        self.gamma = nn.parameter.Parameter(torch.tensor(0.5))  # gamma --> to control amount of s_len on the score
+        self.nn_scaler = nn.Parameter(torch.full([1], 0.01, dtype= torch.float32, requires_grad= True))
+
+        # should be value between 0 and 1
+        # self.alpha = nn.parameter.Parameter(torch.tensor(0.5))  # alpha --> to control amount contextualization
+        # self.beta = nn.parameter.Parameter(torch.tensor(0.5))  # beta --> to control amount of s_log on the score
+        # self.gamma = nn.parameter.Parameter(torch.tensor(0.5))  # gamma --> to control amount of s_len on the score
+
+        self.dense_comb = nn.Linear(2, 1, bias=False)
 
     def forward(self, query: Dict[str, torch.Tensor], document: Dict[str, torch.Tensor]) -> torch.Tensor:
         # pylint: disable=arguments-differ
@@ -140,8 +166,10 @@ class FK(nn.Module):
             document_contextualized = fnet(document_contextualized)
 
         # ^t_i =t_i * alpha + context(t1:n)_i * (1- alpha) --> alpha controls the influence of contextualization --> is also learned
-        query_embedded_contextualized = (self.alpha * query_embeddings) + (1 - self.alpha) * query_contextualized
-        document_embedded_contextualized = (self.alpha * document_embeddings_pos) + (1 - self.alpha) * document_contextualized
+        # query_embedded_contextualized = (self.alpha * query_embeddings) + (1 - self.alpha) * query_contextualized
+        # document_embedded_contextualized = (self.alpha * document_embeddings_pos) + (1 - self.alpha) * document_contextualized
+        query_embedded_contextualized = (self.mixer * query_embeddings) + (1 - self.mixer) * query_contextualized
+        document_embedded_contextualized = (self.mixer * document_embeddings) + (1 - self.mixer) * document_contextualized
 
         # the contextualizations adds values to the words that are only padded (therefore we need to remove the values again by multipyling with the paddding masks)
         query_embedded_contextualized = query_embedded_contextualized * query_pad_oov_mask.unsqueeze(-1)
@@ -188,7 +216,7 @@ class FK(nn.Module):
         # 5a. log normalization
         # log_b is applied on each query term before summing them up resulting in s^k_log
         # log2(0) = -inf we therefore need to clamp zero values to a very low values in order to a result != -inf
-        log_result_summed_document_axis = torch.log2(torch.clamp(result_summed_document_axis, min=1e-10))
+        log_result_summed_document_axis = torch.log2(torch.clamp(result_summed_document_axis, min=1e-10)) * self.nn_scaler
         #log_result_k: (batch_size, n_kernel) = (batch_size, 11)
         # since we sumed over all query terms we retrive now one value per kernel
         log_result_k = torch.sum(log_result_summed_document_axis, 1)
@@ -198,7 +226,7 @@ class FK(nn.Module):
         normed_result_summed_document_axis = result_summed_document_axis / document_length
         #normed_result_k: (batch_size, n_kernel) = (batch_size, 11)
         # since we sumed over all query terms we retrive now one value per kernel
-        normed_result_k = torch.sum(normed_result_summed_document_axis, 1)
+        normed_result_k = torch.sum(normed_result_summed_document_axis * self.nn_scaler, 1)
 
         # 6 kernel scores (one value per kernel) is weighted and summed up with simple linear layer (w_log, W_len)
         # results in one scalar for log-normalized and length normalized kernels --> s_log & s_len
@@ -209,7 +237,8 @@ class FK(nn.Module):
 
         # 7 final score of the query-document pair as weighted sum of s_log & s_len
         # beta & gamma controll the magnitude of influce of s_log and s_len on the putput
-        output = s_log * self.beta + s_len * self.gamma
+        # output = s_log * self.beta + s_len * self.gamma
+        output = self.dense_comb(torch.cat([s_log, s_len], dim = 1))
 
         return output
 
@@ -254,8 +283,18 @@ class FK(nn.Module):
             fnetblock.cuda()
 
         return self.cuda()
+    
+    def get_named_parameters(self):
+        named_pars = [(pName, par) for pName, par in self.named_parameters()]
+
+        for fnetblock in self.fNetBlocks:
+            fnet_pars = [(pName, par) for pName, par in fnetblock.named_parameters()]
+            named_pars = named_pars + fnet_pars
+
+        return named_pars
 
     def fill_wandb_config(self, config: dict):
 
         config["n_kernels"] = self.n_kernels
         config["n_fnet_dim"] = self.n_fnet_dim
+        config["n_layers"] = self.n_layers
