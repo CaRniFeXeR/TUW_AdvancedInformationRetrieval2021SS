@@ -6,7 +6,7 @@ from numpy import isin, ndarray
 from torch._C import Value
 from torch.functional import Tensor
 from model_fk import FK
-from model_tk import *
+from model_tk import TK
 from model_conv_knrm import *
 from model_knrm import *
 from data_loading import *
@@ -342,9 +342,9 @@ if config["model"] == "knrm":
 elif config["model"] == "conv_knrm":
     model = Conv_KNRM(word_embedder, n_grams=3, n_kernels=11, conv_out_dim=128)
 elif config["model"] == "tk":
-    model = TK(word_embedder, n_kernels=11, n_layers=2, n_tf_dim=300, n_tf_heads=11, tf_projection_dim=33)
+    model = TK(word_embedder, n_kernels=11, n_layers=2, n_tf_dim=300, n_tf_heads=5, tf_projection_dim=30)
 elif config["model"] == "fk":
-    model = FK(word_embedder, n_kernels=11, n_layers=12, n_fnet_dim=300)
+    model = FK(word_embedder, n_kernels=11, n_layers=4, n_fnet_dim=300)
 
 if use_wandb and hasattr(model, "fill_wandb_config"):
     model.fill_wandb_config(wandb_config)
@@ -382,7 +382,11 @@ qrels = load_qrels(config["qrels_data"])
 
 # don't train word embedder
 paramsToTrain = []
-for p_name, par in model.named_parameters():
+if hasattr(model, "get_named_parameters"):
+    namedParamsIt = model.get_named_parameters()
+else:
+    namedParamsIt = model.named_parameters()
+for p_name, par in namedParamsIt:
     if not "word_embeddings" in p_name:
         paramsToTrain.append(par)
 
