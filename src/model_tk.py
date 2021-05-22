@@ -1,5 +1,4 @@
 from typing import Dict, Iterator, List, Optional, Union
-from numpy import isin
 
 import torch
 import torch.nn as nn
@@ -13,6 +12,41 @@ from allennlp.modules.feedforward import FeedForward
 from allennlp.nn.activations import Activation
 from allennlp.modules.layer_norm import LayerNorm
 from torch.types import Device
+
+class TransformerBlock(nn.Module):
+
+    def __init__(self, input_dim : int, hidden_dim : int, n_heads : int, projection_dim : int):
+        super().__init__()
+
+        self.ff = FeedForward(
+            input_dim,
+            activations=[Activation.by_name("relu")(), Activation.by_name("linear")()],
+            hidden_dims=[hidden_dim, input_dim],
+            num_layers=2
+        )
+
+        self.ff_layer_norm = LayerNorm(input_dim)
+
+        self.mutlihead_att = MultiHeadSelfAttention(
+                                        num_heads = n_heads,
+                                        input_dim = input_dim,
+                                        attention_dim = projection_dim,
+                                        values_dim = projection_dim,
+                                        )
+       
+        self.layer_norm = LayerNorm(self.mutlihead_att.get_output_dim())
+        
+       
+    def forward(self, x : torch.Tensor, mask : torch.BoolTensor):
+        
+        residual = x
+        ff_output = self.ff(x)
+        ff_output = self.ff_layer_norm(ff_output + residual)
+        
+        att_output = self.mutlihead_att(x, mask)
+        output = self.layer_norm(att_output + ff_output)
+
+        return output
 
 
 class TK(nn.Module):
@@ -31,7 +65,7 @@ class TK(nn.Module):
         super(TK, self).__init__()
 
         if not isinstance(word_embeddings, TextFieldEmbedder):
-            raise TypeError("word_ebeddings must be a TextFieldEmbedder")
+            raise TypeError("word_embeddings must be a TextFieldEmbedder")
 
         if not isinstance(n_kernels, int):
             raise TypeError("n_kernels must be a int")
@@ -61,36 +95,30 @@ class TK(nn.Module):
         self.cosinematrix = CosineMatrixAttention()
 
         # Contextualization
-        # n_layers of transformers stored in a List
-        self.ffLayers: List[FeedForward] = []
-        self.attentionHeadLayers: List[MultiHeadSelfAttention] = []
-        self.normLayers: List[LayerNorm] = []
+        self.transformerBlocks : nn.ModuleList[TransformerBlock] = []
         for i in range(n_layers):
-            self.ffLayers.append(
-                FeedForward(
-                    self.n_tf_dim,
-                    activations=[Activation.by_name("relu")(), Activation.by_name("linear")()],
-                    hidden_dims=[self.n_tf_dim, self.n_tf_dim],
-                    num_layers=2
-                )
+            self.transformerBlocks.append(
+                TransformerBlock(input_dim= self.n_tf_dim,
+                                 hidden_dim= 100,
+                                 projection_dim= self.tf_projection_dim,
+                                 n_heads = self.n_tf_heads)
             )
-
-            self.attentionHeadLayers.append(
-                MultiHeadSelfAttention(
-                    num_heads=self.n_tf_heads,
-                    input_dim=self.n_tf_dim,
-                    attention_dim=self.tf_projection_dim,
-                    values_dim=self.tf_projection_dim
-                ))
-            self.normLayers.append(LayerNorm(n_tf_dim))
 
         self.linear_Slog = nn.Linear(self.n_kernels, 1, bias=False)
         self.linear_Slen = nn.Linear(self.n_kernels, 1, bias=False)
 
+        # init with small weights, otherwise the dense output is way to high for the tanh -> resulting in loss == 1 all the time
+        torch.nn.init.uniform_(self.linear_Slog.weight, -0.014, 0.014)  # inits taken from matchzoo
+        torch.nn.init.uniform_(self.linear_Slen.weight, -0.014, 0.014)  # inits taken from matchzoo
+
+        self.nn_scaler = nn.Parameter(torch.full([1], 0.01, dtype=torch.float32, requires_grad=True))
+        self.mixer = nn.Parameter(torch.full([1, 1, 1], 0.5, dtype=torch.float32, requires_grad=True))
+
         # should be value between 0 and 1
-        self.alpha = nn.parameter.Parameter(torch.tensor(0.5))  # alpha --> to control amount contextualization
-        self.beta = nn.parameter.Parameter(torch.tensor(0.5))  # beta --> to control amount of s_log on the score
-        self.gamma = nn.parameter.Parameter(torch.tensor(0.5))  # gamma --> to control amount of s_len on the score
+        # self.alpha = nn.parameter.Parameter(torch.tensor(0.5))  # alpha --> to control amount contextualization
+        self.dense_comb = nn.Linear(2, 1, bias=False)
+        # self.beta = nn.parameter.Parameter(torch.tensor(0.5))  # beta --> to control amount of s_log on the score
+        # self.gamma = nn.parameter.Parameter(torch.tensor(0.5))  # gamma --> to control amount of s_len on the score
 
     def forward(self, query: Dict[str, torch.Tensor], document: Dict[str, torch.Tensor]) -> torch.Tensor:
         # pylint: disable=arguments-differ
@@ -129,19 +157,15 @@ class TK(nn.Module):
         document_contextualized = document_embeddings_pos
 
         # n transformer blocks
-        for ff, mutlihead, layer_norm in zip(self.ffLayers, self.attentionHeadLayers, self.normLayers):
-            # feedforward layer
-            ff_query_contextualized = ff(query_contextualized)
-            ff_document_contextualized = ff(document_contextualized)
-            # mutlihead attention (provide padding mask)
-            attenion_query_contextualized = mutlihead(ff_query_contextualized, query_pad_oov_mask_bool)
-            attenion_document_contextualized = mutlihead(ff_document_contextualized, document_pad_oov_mask_bool)
-            query_contextualized = layer_norm(attenion_query_contextualized + ff_query_contextualized)
-            document_contextualized = layer_norm(attenion_document_contextualized + ff_document_contextualized)
+        for transformerBlock in self.transformerBlocks:
+            query_contextualized = transformerBlock(query_contextualized, query_pad_oov_mask_bool)
+            document_contextualized = transformerBlock(document_contextualized, document_pad_oov_mask_bool)
 
         # ^t_i =t_i * alpha + context(t1:n)_i * (1- alpha) --> alpha controls the influence of contextualization --> is also learned
-        query_embedded_contextualized = (self.alpha * query_embeddings) + (1 - self.alpha) * query_contextualized
-        document_embedded_contextualized = (self.alpha * document_embeddings_pos) + (1 - self.alpha) * document_contextualized
+        query_embedded_contextualized = (self.mixer * query_embeddings) + (1 - self.mixer) * query_contextualized
+        document_embedded_contextualized = (self.mixer * document_embeddings) + (1 - self.mixer) * document_contextualized
+        # query_embedded_contextualized = (self.alpha * query_embeddings) + (1 - self.alpha) * query_contextualized
+        # document_embedded_contextualized = (self.alpha * document_embeddings_pos) + (1 - self.alpha) * document_contextualized
 
         # the contextualizations adds values to the words that are only padded (therefore we need to remove the values again by multipyling with the paddding masks)
         query_embedded_contextualized = query_embedded_contextualized * query_pad_oov_mask.unsqueeze(-1)
@@ -163,7 +187,8 @@ class TK(nn.Module):
         #query_by_doc_mask: (batch_size, query_len, document_len)
         query_by_doc_mask = torch.bmm(query_pad_oov_mask.unsqueeze(-1), document_pad_oov_mask.unsqueeze(-1).transpose(-1, -2))
 
-        cosine_matrix_m = cosine_matrix_m * query_by_doc_mask
+        cosine_matrix_m = torch.tanh(cosine_matrix_m * query_by_doc_mask)
+        # cosine_matrix_m = cosine_matrix_m * query_by_doc_mask
 
         # todo explain why unsqueez is needed
         cosine_matrix_m = cosine_matrix_m.unsqueeze(-1)
@@ -188,28 +213,35 @@ class TK(nn.Module):
         # 5a. log normalization
         # log_b is applied on each query term before summing them up resulting in s^k_log
         # log2(0) = -inf we therefore need to clamp zero values to a very low values in order to a result != -inf
-        log_result_summed_document_axis = torch.log2(torch.clamp(result_summed_document_axis, min=1e-10))
+        #log_result_summed_document_axis (batch_size, query_len, n_kernels)
+        log_result_summed_document_axis = torch.log2(torch.clamp(result_summed_document_axis, min=1e-10)) * self.nn_scaler
+        # since the clamping added non zero values for the padded values we need to remove them again
+        log_result_summed_document_axis = log_result_summed_document_axis * query_pad_oov_mask.unsqueeze(-1)
+
         #log_result_k: (batch_size, n_kernel) = (batch_size, 11)
         # since we sumed over all query terms we retrive now one value per kernel
         log_result_k = torch.sum(log_result_summed_document_axis, 1)
         # 5b. length normalization
         # /document_length is applied on each query term before summing them up resulting in s^k_len
-        document_length = document_embeddings.shape[1]  # doc_leng 180 in our case
-        normed_result_summed_document_axis = result_summed_document_axis / document_length
+        # sum of the mask gives use the length for each document --> (batch_size)
+        document_lengths = torch.sum(document_pad_oov_mask, 1)
+        normed_result_summed_document_axis = result_summed_document_axis / (document_lengths.view(-1,1,1) + 0.0001) * self.nn_scaler
+        normed_result_summed_document_axis = normed_result_summed_document_axis * query_pad_oov_mask.unsqueeze(-1)
         #normed_result_k: (batch_size, n_kernel) = (batch_size, 11)
         # since we sumed over all query terms we retrive now one value per kernel
         normed_result_k = torch.sum(normed_result_summed_document_axis, 1)
 
-        # 6 kernel scores (one value per kernel) is weighted and summed up with simple linear layer (w_log, W_len)
+        # 6. kernel scores (one value per kernel) is weighted and summed up with simple linear layer (s_log, s_len)
         # results in one scalar for log-normalized and length normalized kernels --> s_log & s_len
 
         # s_log and s_len --> one value per batch --> shape: (batch_size, 1)
         s_log = self.linear_Slog(log_result_k)
         s_len = self.linear_Slen(normed_result_k)
 
-        # 7 final score of the query-document pair as weighted sum of s_log & s_len
+        # 7. final score of the query-document pair as weighted sum of s_log & s_len
         # beta & gamma controll the magnitude of influce of s_log and s_len on the putput
-        output = s_log * self.beta + s_len * self.gamma
+        # output = s_log * self.beta + s_len * self.gamma
+        output = self.dense_comb(torch.cat([s_log, s_len], dim=1))
 
         return output
 
@@ -250,12 +282,19 @@ class TK(nn.Module):
         self.mu = self.mu.cuda()
         self.sigma = self.sigma.cuda()
 
-        for ff, mutlihead, layernrom in zip(self.ffLayers, self.attentionHeadLayers, self.normLayers):
-            ff.cuda()
-            mutlihead.cuda()
-            layernrom.cuda()
+        for transformerBlock in self.transformerBlocks:
+            transformerBlock.cuda()
 
         return self.cuda()
+
+    def get_named_parameters(self):
+        named_pars = [(pName, par) for pName, par in self.named_parameters()]
+
+        for transformerBlock in self.transformerBlocks:
+            transformer_pars = [(pName, par) for pName, par in transformerBlock.named_parameters()]
+            named_pars = named_pars + transformer_pars
+
+        return named_pars
 
     def fill_wandb_config(self, config: dict):
 

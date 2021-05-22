@@ -298,7 +298,7 @@ config = {
     "eval_batch_size": 256,
     "validation_interval": 250,
     "learning_rate" : 0.0001,
-    "weight_decay" : 0.001,
+    "weight_decay" : 0.00,
     "use_wandb": True,
     "wandb_entity": "floko",
     "wandb_log_interval": 10
@@ -342,7 +342,7 @@ if config["model"] == "knrm":
 elif config["model"] == "conv_knrm":
     model = Conv_KNRM(word_embedder, n_grams=3, n_kernels=11, conv_out_dim=128)
 elif config["model"] == "tk":
-    model = TK(word_embedder, n_kernels=11, n_layers=2, n_tf_dim=300, n_tf_heads=5, tf_projection_dim=30)
+    model = TK(word_embedder, n_kernels=11, n_layers=2, n_tf_dim=300, n_tf_heads=10, tf_projection_dim=30)
 elif config["model"] == "fk":
     model = FK(word_embedder, n_kernels=11, n_layers=4, n_fnet_dim=300)
 

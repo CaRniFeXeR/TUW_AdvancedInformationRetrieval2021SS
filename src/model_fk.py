@@ -217,13 +217,16 @@ class FK(nn.Module):
         # log_b is applied on each query term before summing them up resulting in s^k_log
         # log2(0) = -inf we therefore need to clamp zero values to a very low values in order to a result != -inf
         log_result_summed_document_axis = torch.log2(torch.clamp(result_summed_document_axis, min=1e-10)) * self.nn_scaler
+        # since the clamping added non zero values for the padded values we need to remove them again
+        log_result_summed_document_axis = log_result_summed_document_axis * query_pad_oov_mask.unsqueeze(-1)
+
         #log_result_k: (batch_size, n_kernel) = (batch_size, 11)
         # since we sumed over all query terms we retrive now one value per kernel
         log_result_k = torch.sum(log_result_summed_document_axis, 1)
         # 5b. length normalization
         # /document_length is applied on each query term before summing them up resulting in s^k_len
-        document_length = document_embeddings.shape[1]  # doc_leng 180 in our case
-        normed_result_summed_document_axis = result_summed_document_axis / document_length
+        document_lengths = torch.sum(document_pad_oov_mask, 1)
+        normed_result_summed_document_axis = result_summed_document_axis / (document_lengths.view(-1,1,1) + 0.0001) * self.nn_scaler
         #normed_result_k: (batch_size, n_kernel) = (batch_size, 11)
         # since we sumed over all query terms we retrive now one value per kernel
         normed_result_k = torch.sum(normed_result_summed_document_axis * self.nn_scaler, 1)
