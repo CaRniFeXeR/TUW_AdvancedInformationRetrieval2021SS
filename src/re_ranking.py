@@ -293,10 +293,11 @@ config = {
     "test_data": "data/msmarco_tuples.test.tsv",
     "qrels_data": "data/msmarco_qrels.txt",
     "onGPU": False,
-    "n_training_epochs": 2,
+    "n_training_epochs": 3,
     "traning_batch_size": 128,
     "eval_batch_size": 256,
     "validation_interval": 250,
+    "learning_rate" : 0.0002,
     "use_wandb": True,
     "wandb_entity": "floko",
     "wandb_log_interval": 10
@@ -317,6 +318,7 @@ if use_wandb:
     wandb_config["validation_data"] = config["validation_data"]
     wandb_config["test_data"] = config["test_data"]
     wandb_config["train_data"] = config["train_data"]
+    wandb_config["learning_rate"] = config["learning_rate"]
 
 # endregion
 
@@ -338,9 +340,9 @@ if config["model"] == "knrm":
 elif config["model"] == "conv_knrm":
     model = Conv_KNRM(word_embedder, n_grams=3, n_kernels=11, conv_out_dim=128)
 elif config["model"] == "tk":
-    model = TK(word_embedder, n_kernels=11, n_layers=2, n_tf_dim=300, n_tf_heads=10, tf_projection_dim=40)
+    model = TK(word_embedder, n_kernels=11, n_layers=2, n_tf_dim=300, n_tf_heads=10, tf_projection_dim=32)
 elif config["model"] == "fk":
-    model = FK(word_embedder, n_kernels=11, n_layers=6, n_fnet_dim=300)
+    model = FK(word_embedder, n_kernels=11, n_layers=12, n_fnet_dim=300)
 
 if use_wandb and hasattr(model, "fill_wandb_config"):
     model.fill_wandb_config(wandb_config)
@@ -376,8 +378,14 @@ if onGPU:
 # load labels
 qrels = load_qrels(config["qrels_data"])
 
+# don't train word embedder
+paramsToTrain = []
+for p_name, par in model.named_parameters():
+    if not "word_embeddings" in p_name:
+        paramsToTrain.append(par)
+
 # todo set learningrate and weight decay
-optimizer = torch.optim.Adam(model.parameters())
+optimizer = torch.optim.Adam(paramsToTrain, lr=config["learning_rate"])
 
 # early stopping
 earlyStoppingWatchter = EarlyStoppingWatcher(patience=5) \
@@ -392,14 +400,14 @@ for epoch in range(config["n_training_epochs"]):
 
     if earlyStoppingReached:
         break
-
+    
     # activate training mode on model
     model.train(mode=True)
     trainLossList = []
 
     for i, batch in enumerate(Tqdm.tqdm(loader)):
-        total_batch_count += 1
 
+        total_batch_count += 1
         output_score_relevant, output_score_unrelevant, targetValues = modelForwardPassOnTripleBatchData(model, batch, targetValues, onGPU)
 
         batch_loss = marginRankingLoss(output_score_relevant, output_score_unrelevant, targetValues)
