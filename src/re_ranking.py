@@ -393,10 +393,7 @@ for p_name, par in namedParamsIt:
     if not config["include_word_embedding_to_optimizer"] or not "word_embeddings" in p_name:
         paramsToTrain.append(par)
 
-# todo set learningrate and weight decay
 optimizer = torch.optim.Adam(paramsToTrain, lr=config["learning_rate"], weight_decay=config["weight_decay"])
-
-torch.save(model.state_dict(), f"outdir/model_{config['model']}_{datetime.now().strftime('%d_%m_%Y %H_%M')}")
 
 # early stopping
 earlyStoppingWatchter = EarlyStoppingWatcher(patience=20) \
