@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+from datetime import datetime
 from re import purge
 import wandb
 from typing import Tuple, Type
@@ -293,12 +294,13 @@ config = {
     "test_data": "data/msmarco_tuples.test.tsv",
     "qrels_data": "data/msmarco_qrels.txt",
     "onGPU": False,
+    "include_word_embedding_to_optimizer" : False,
     "n_training_epochs": 3,
     "traning_batch_size": 128,
     "eval_batch_size": 256,
     "validation_interval": 250,
-    "learning_rate" : 0.0001,
-    "weight_decay" : 0.00,
+    "learning_rate": 0.0001,
+    "weight_decay": 0.001,
     "use_wandb": True,
     "wandb_entity": "floko",
     "wandb_log_interval": 10
@@ -342,9 +344,11 @@ if config["model"] == "knrm":
 elif config["model"] == "conv_knrm":
     model = Conv_KNRM(word_embedder, n_grams=3, n_kernels=11, conv_out_dim=128)
 elif config["model"] == "tk":
+    #"learning_rate": 0.0001 needed for tk to perform
     model = TK(word_embedder, n_kernels=11, n_layers=2, n_tf_dim=300, n_tf_heads=10, tf_projection_dim=30)
 elif config["model"] == "fk":
-    model = FK(word_embedder, n_kernels=11, n_layers=4, n_fnet_dim=300)
+    # learning_rate" : 0.001 needed for fk to perform
+    model = FK(word_embedder, n_kernels=11, n_layers=8, n_fnet_dim=300)
 
 if use_wandb and hasattr(model, "fill_wandb_config"):
     model.fill_wandb_config(wandb_config)
@@ -387,14 +391,13 @@ if hasattr(model, "get_named_parameters"):
 else:
     namedParamsIt = model.named_parameters()
 for p_name, par in namedParamsIt:
-    if not "word_embeddings" in p_name:
+    if not config["include_word_embedding_to_optimizer"] or not "word_embeddings" in p_name:
         paramsToTrain.append(par)
 
-# todo set learningrate and weight decay
-optimizer = torch.optim.Adam(paramsToTrain, lr=config["learning_rate"], weight_decay = config["weight_decay"])
+optimizer = torch.optim.Adam(paramsToTrain, lr=config["learning_rate"], weight_decay=config["weight_decay"])
 
 # early stopping
-earlyStoppingWatchter = EarlyStoppingWatcher(patience=10) \
+earlyStoppingWatchter = EarlyStoppingWatcher(patience=20) \
     .addCriteria(MaxIterationCriteria(50000)) \
     .addCriteria(MinDeltaCriteria(0.001)) \
     .addCriteria(MinStdCritera(min_std=0.001, window_size=40))
@@ -406,7 +409,7 @@ for epoch in range(config["n_training_epochs"]):
 
     if earlyStoppingReached:
         break
-    
+
     # activate training mode on model
     model.train(mode=True)
     trainLossList = []
@@ -468,7 +471,6 @@ for epoch in range(config["n_training_epochs"]):
     if use_wandb:
         wandb.log({"validiation_MRR@10": result['MRR@10'], "global_step": total_batch_count})
 
-    # set model in eval mode
 
 # region [Evaluation]
 
@@ -488,5 +490,7 @@ result = evaluateModel(model, testdata_loader, relevanceLabels=qrels, onGPU=onGP
 print(f"testset Score MRR@10 : {result['MRR@10']:.3f}")
 if use_wandb:
     wandb.log({"test_MRR@10": result['MRR@10'], "global_step": total_batch_count})
+
+torch.save(model.state_dict(), f"outdir/model_{config['model']}_{datetime.now().strftime('%d_%m_%Y %H_%M')}.pt")
 
 # endregion

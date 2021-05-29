@@ -43,7 +43,7 @@ class TransformerBlock(nn.Module):
         ff_output = self.ff(x)
         ff_output = self.ff_layer_norm(ff_output + residual)
         
-        att_output = self.mutlihead_att(x, mask)
+        att_output = self.mutlihead_att(ff_output, mask)
         output = self.layer_norm(att_output + ff_output)
 
         return output
