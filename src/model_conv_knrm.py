@@ -10,28 +10,32 @@ from allennlp.modules.matrix_attention.cosine_matrix_attention import CosineMatr
 
 class WordEmbeddingLayer(nn.Module):
     def __init__(self, word_embeddings: TextFieldEmbedder):
-        super(WordEmbeddingLayer, self)
+        super(WordEmbeddingLayer, self).__init__()
 
         self.word_embeddings = word_embeddings        
 
     def forward(self, query_input: Dict[str, torch.Tensor], document_intput: Dict[str, torch.Tensor]) -> torch.Tensor:
         # shape: (batch, query_max,emb_dim)
-        query_embeddings = self.word_embeddings(query)
+        query_embeddings = self.word_embeddings({"tokens": query_input})
         # shape: (batch, document_max,emb_dim)
-        document_embeddings = self.word_embeddings(document)
+        document_embeddings = self.word_embeddings({"tokens": document_intput})
 
         # !! conv1d requires tensor in shape: [batch, emb_dim, sequence_length ]
         # so we transpose embedding tensors from : [batch, sequence_length,emb_dim] to [batch, emb_dim, sequence_length ]
         # feed that into the conv1d and reshape output from [batch, conv1d_out_channels, sequence_length ] 
         # to [batch, sequence_length, conv1d_out_channels]
-        query_embeddings_tensor = query_embeddings.transpose(1, 2)
-        document_embeddings_tensor = document_embeddings.transpose(1, 2)
+        query_embeddings_tensor: torch.Tensor = query_embeddings.transpose(1, 2)
+        document_embeddings_tensor: torch.Tensor = document_embeddings.transpose(1, 2)
+
+        m = nn.ZeroPad2d((0, document_embeddings_tensor.shape[2] - query_embeddings_tensor.shape[2], 0, 0))
+
+        query_embeddings_tensor = m(query_embeddings_tensor)
 
         return torch.stack([query_embeddings_tensor, document_embeddings_tensor])
 
 class ConvolutionalLayer(nn.Module):
-    def __init__(self, n_grams: int, conv_out_dim: int):
-        super(ConvolutionalLayer, self)
+    def __init__(self, n_grams: int, conv_in_dim: int, conv_out_dim: int):
+        super(ConvolutionalLayer, self).__init__()
 
         self.convolutions = nn.ModuleList()
 
@@ -40,7 +44,7 @@ class ConvolutionalLayer(nn.Module):
             self.convolutions.append(
                 nn.Sequential(
                     nn.ConstantPad1d((0, i - 1), 0), #adds padding to keep same dimension
-                    nn.Conv1d(kernel_size=i, in_channels=word_embeddings.get_output_dim(), out_channels=conv_out_dim), #kernel size gets changed for each convolution, sets input channels to dimensions of word embeddings, sets outputput to desired output dimensions
+                    nn.Conv1d(kernel_size=i, in_channels=conv_in_dim, out_channels=conv_out_dim), #kernel size gets changed for each convolution, sets input channels to dimensions of word embeddings, sets outputput to desired output dimensions
                     nn.ReLU()
                 )
             )
@@ -65,7 +69,7 @@ class ConvolutionalLayer(nn.Module):
 
 class CrossmatchLayer(nn.Module):
     def __init__(self):
-        super(CrossmatchLayer, self)
+        super(CrossmatchLayer, self).__init__()
 
         # this does not really do "attention" - just a plain cosine matrix calculation (without learnable weights) 
         self.cosine_module = CosineMatrixAttention()
@@ -79,7 +83,7 @@ class CrossmatchLayer(nn.Module):
             matched_results_per_batch = []
 
             for t in range(len(query_tensor)):
-                cosine_matrix: torch.Tensor = self.cosine_module.forward(query_tensor, document_tensor)
+                cosine_matrix: torch.Tensor = self.cosine_module.forward(query_tensor[i], document_tensor[t])
                 cosine_matrix_masked: torch.Tensor = cosine_matrix * query_by_doc_mask
                 cosine_matrix_extradim: torch.Tensor = cosine_matrix_masked.unsqueeze(-1)
 
@@ -91,7 +95,7 @@ class CrossmatchLayer(nn.Module):
 
 class KernelPoolingLayer(nn.Module):
     def __init__(self, n_kernels: int):
-        super(KernelPoolingLayer, self)
+        super(KernelPoolingLayer, self).__init__()
 
         self.mu = Variable(torch.FloatTensor(self.kernel_mus(n_kernels)), requires_grad=False).view(1, 1, 1, n_kernels)
         self.sigma = Variable(torch.FloatTensor(self.kernel_sigmas(n_kernels)), requires_grad=False).view(1, 1, 1, n_kernels)
@@ -151,8 +155,8 @@ class KernelPoolingLayer(nn.Module):
         return l_sigma
 
 class LearningToRankLayer(nn.Module):
-    def __init__(self):
-        super(LearningToRankLayer, self)
+    def __init__(self, n_kernels: int, n_grams: int):
+        super(LearningToRankLayer, self).__init__()
 
         # *9 because we concat the 3x3 conv match sums together before the dense layer
         self.dense = nn.Linear(n_kernels * n_grams * n_grams, 1, bias=False) 
@@ -186,10 +190,10 @@ class Conv_KNRM(nn.Module):
 
         #define layers
         self.word_embedding_layer = WordEmbeddingLayer(word_embeddings) 
-        self.convolutional_layer = ConvolutionalLayer(n_grams, conv_out_dim) 
+        self.convolutional_layer = ConvolutionalLayer(n_grams, word_embeddings.get_output_dim(), conv_out_dim) 
         self.crossmatch_layer = CrossmatchLayer() 
-        self.kernel_pooling_layer = KernelPoolingLayer()
-        self.learning_to_rank_layer = LearningToRankLayer() 
+        self.kernel_pooling_layer = KernelPoolingLayer(n_kernels)
+        self.learning_to_rank_layer = LearningToRankLayer(n_kernels, n_grams) 
 
     def forward(self, query: Dict[str, torch.Tensor], document: Dict[str, torch.Tensor]) -> torch.Tensor:
 
