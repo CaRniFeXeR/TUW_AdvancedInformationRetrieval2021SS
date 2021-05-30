@@ -5,6 +5,7 @@ import wandb
 from typing import Tuple, Type
 from numpy import isin, ndarray
 from torch._C import Value
+import torch
 from torch.functional import Tensor
 from model_fk import FK
 from model_tk import TK
@@ -283,6 +284,7 @@ def evaluateModel(model: nn.Module, tupleLoader: PyTorchDataLoader, relevanceLab
 
 # region [Config & wandb]
 
+torch.manual_seed(32)
 
 # change paths to your data directory
 config = {
@@ -293,21 +295,20 @@ config = {
     "validation_data": "data/msmarco_tuples.validation.tsv",
     "test_data": "data/msmarco_tuples.test.tsv",
     "qrels_data": "data/msmarco_qrels.txt",
-    "onGPU": False,
-    "include_word_embedding_to_optimizer" : False,
+    "onGPU": torch.cuda.is_available(),
+    "train_word_embedding" : True,
     "n_training_epochs": 3,
     "traning_batch_size": 128,
     "eval_batch_size": 256,
     "validation_interval": 250,
-    "learning_rate": 0.0001,
-    "weight_decay": 0.001,
+    "learning_rate": 0.001,
+    "weight_decay": 0.01,
     "use_wandb": True,
     "wandb_entity": "floko",
     "wandb_log_interval": 10
 
 }
 
-config["onGPU"] = torch.cuda.is_available()
 onGPU = config["onGPU"]
 
 use_wandb = config["use_wandb"]
@@ -391,14 +392,14 @@ if hasattr(model, "get_named_parameters"):
 else:
     namedParamsIt = model.named_parameters()
 for p_name, par in namedParamsIt:
-    if not config["include_word_embedding_to_optimizer"] or not "word_embeddings" in p_name:
+    if config["train_word_embedding"] == True or not "word_embeddings" in p_name:
         paramsToTrain.append(par)
 
 optimizer = torch.optim.Adam(paramsToTrain, lr=config["learning_rate"], weight_decay=config["weight_decay"])
 
 # early stopping
-earlyStoppingWatchter = EarlyStoppingWatcher(patience=20) \
-    .addCriteria(MaxIterationCriteria(50000)) \
+earlyStoppingWatchter = EarlyStoppingWatcher(patience=400) \
+    .addCriteria(MaxIterationCriteria(100000)) \
     .addCriteria(MinDeltaCriteria(0.001)) \
     .addCriteria(MinStdCritera(min_std=0.001, window_size=40))
 
