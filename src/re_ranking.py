@@ -290,7 +290,7 @@ torch.manual_seed(32)
 config = {
     "vocab_directory": "data/allen_vocab_lower_10",
     "pre_trained_embedding": "data/glove.42B.300d.txt",
-    "model": "tk",
+    "model": "conv_knrm",
     "train_data": "data/triples.train.tsv",
     "validation_data": "data/msmarco_tuples.validation.tsv",
     "test_data": "data/msmarco_tuples.test.tsv",
