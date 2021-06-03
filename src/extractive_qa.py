@@ -59,7 +59,7 @@ class QAScore:
     def __str__(self) -> str:
 
         parsed_scores = [f"'{t.answer}' : '{s}'" for t, s in zip(self.target_results, self.scores)]
-        result = f" max: '{self.max_score}' all: '{parsed_scores}'"
+        result = f" max: '{self.max_score:.3f}' all: '{parsed_scores}'"
         
         return result
 
