@@ -60,6 +60,12 @@ class ConvolutionalLayer(nn.Module):
 
         return torch.stack([query_n_gram_tensor, document_n_gram_tensor]).transpose(-1, -2)
 
+    def cuda(self: ConvolutionalLayer, device: Optional[Union[int, device]] = None) -> ConvolutionalLayer:
+        for conv in self.convolutions:
+            conv.cuda(device)
+
+        return super(ConvolutionalLayer, self).cuda(device)
+
 class CrossmatchLayer(nn.Module):
     def __init__(self):
         super(CrossmatchLayer, self).__init__()
@@ -104,6 +110,12 @@ class KernelPoolingLayer(nn.Module):
             soft_tf_features.append(per_kernel)
 
         return torch.stack(soft_tf_features)
+
+    def cuda(self: KernelPoolingLayer, device: Optional[Union[int, device]] = None) -> KernelPoolingLayer:
+        self.mu = self.mu.cuda(device)
+        self.sigma = self.sigma.cuda(device)
+
+        return super(KernelPoolingLayer, self).cuda(device)
 
     def kernel_mus(self, n_kernels: int):
         """
@@ -199,3 +211,4 @@ class Conv_KNRM(nn.Module):
         scores_all_batches: torch.Tensor = self.learning_to_rank_layer.forward(soft_tf_features_all_batches) #combines soft-TF ranking into ranking score
 
         return scores_all_batches
+        
