@@ -16,22 +16,15 @@ class WordEmbeddingLayer(nn.Module):
 
     def forward(self, query_input: Dict[str, torch.Tensor], document_intput: Dict[str, torch.Tensor]) -> torch.Tensor:
         # shape: (batch, query_max,emb_dim)
-        query_embeddings = self.word_embeddings({"tokens": query_input})
+        query_embeddings_tensor = self.word_embeddings({"tokens": query_input})
         # shape: (batch, document_max,emb_dim)
-        document_embeddings = self.word_embeddings({"tokens": document_intput})
+        document_embeddings_tensor = self.word_embeddings({"tokens": document_intput})
 
-        # !! conv1d requires tensor in shape: [batch, emb_dim, sequence_length ]
-        # so we transpose embedding tensors from : [batch, sequence_length,emb_dim] to [batch, emb_dim, sequence_length ]
-        # feed that into the conv1d and reshape output from [batch, conv1d_out_channels, sequence_length ] 
-        # to [batch, sequence_length, conv1d_out_channels]
-        query_embeddings_tensor: torch.Tensor = query_embeddings.transpose(1, 2)
-        document_embeddings_tensor: torch.Tensor = document_embeddings.transpose(1, 2)
-
-        m = nn.ZeroPad2d((0, document_embeddings_tensor.shape[2] - query_embeddings_tensor.shape[2], 0, 0))
+        m = nn.ZeroPad2d((0, 0, 0, document_embeddings_tensor.shape[1] - query_embeddings_tensor.shape[1]))
 
         query_embeddings_tensor = m(query_embeddings_tensor)
 
-        return torch.stack([query_embeddings_tensor, document_embeddings_tensor])
+        return torch.stack([query_embeddings_tensor, document_embeddings_tensor]).transpose(-1, -2)
 
 class ConvolutionalLayer(nn.Module):
     def __init__(self, n_grams: int, conv_in_dim: int, conv_out_dim: int):
@@ -56,8 +49,8 @@ class ConvolutionalLayer(nn.Module):
         query_tensor, document_tensor = torch.unbind(query_document_tensor)
 
         for i,conv in enumerate(self.convolutions):
-            query_conv = conv(query_tensor).transpose(1, 2) 
-            document_conv = conv(document_tensor).transpose(1, 2)
+            query_conv = conv(query_tensor)
+            document_conv = conv(document_tensor)
 
             query_results.append(query_conv)
             document_results.append(document_conv)
@@ -65,7 +58,13 @@ class ConvolutionalLayer(nn.Module):
         query_n_gram_tensor = torch.stack(query_results)
         document_n_gram_tensor = torch.stack(document_results)
 
-        return torch.stack([query_n_gram_tensor, document_n_gram_tensor])
+        return torch.stack([query_n_gram_tensor, document_n_gram_tensor]).transpose(-1, -2)
+
+    def cuda(self: ConvolutionalLayer, device: Optional[Union[int, device]] = None) -> ConvolutionalLayer:
+        for conv in self.convolutions:
+            conv.cuda(device)
+
+        return super(ConvolutionalLayer, self).cuda(device)
 
 class CrossmatchLayer(nn.Module):
     def __init__(self):
@@ -75,23 +74,18 @@ class CrossmatchLayer(nn.Module):
         self.cosine_module = CosineMatrixAttention()
 
     def forward(self, query_document_n_gram_tensor: torch.Tensor, query_by_doc_mask: torch.Tensor) -> torch.Tensor:
-        matched_results_all_batches = []
+        match_matrices = []
 
         query_tensor, document_tensor = torch.unbind(query_document_n_gram_tensor)
 
         for i in range(len(query_tensor)):
-            matched_results_per_batch = []
-
             for t in range(len(query_tensor)):
                 cosine_matrix: torch.Tensor = self.cosine_module.forward(query_tensor[i], document_tensor[t])
                 cosine_matrix_masked: torch.Tensor = cosine_matrix * query_by_doc_mask
-                cosine_matrix_extradim: torch.Tensor = cosine_matrix_masked.unsqueeze(-1)
 
-                matched_results_per_batch.append(cosine_matrix_extradim)
+                match_matrices.append(cosine_matrix_masked.unsqueeze(-1))
 
-            matched_results_all_batches.append(torch.stack(matched_results_per_batch))
-
-        return torch.stack(matched_results_all_batches)
+        return torch.stack(match_matrices)
 
 class KernelPoolingLayer(nn.Module):
     def __init__(self, n_kernels: int):
@@ -101,26 +95,27 @@ class KernelPoolingLayer(nn.Module):
         self.sigma = Variable(torch.FloatTensor(self.kernel_sigmas(n_kernels)), requires_grad=False).view(1, 1, 1, n_kernels)
 
     def forward(self, match_matrices_all_batches: torch.Tensor, query_by_doc_mask: torch.Tensor, query_pad_oov_mask: torch.Tensor) -> torch.Tensor:
-        soft_tf_features_all_batches = []
+        soft_tf_features = []
 
-        for i, match_matrices_per_batch in enumerate(match_matrices_all_batches):
-            soft_tf_features = []
+        for i, match_matrix in enumerate(match_matrices_all_batches):
+            raw_kernel_results = torch.exp(- torch.pow(match_matrix - self.mu, 2) / (2 * torch.pow(self.sigma, 2)))
+            kernel_results_masked = raw_kernel_results * query_by_doc_mask.unsqueeze(-1)
 
-            for j, match_matrix in enumerate(match_matrices_per_batch):
-                raw_kernel_results = torch.exp(- torch.pow(match_matrix - self.mu, 2) / (2 * torch.pow(self.sigma, 2)))
-                kernel_results_masked = raw_kernel_results * query_by_doc_mask.unsqueeze(-1)
+            per_kernel_query = torch.sum(kernel_results_masked, 2)
+            log_per_kernel_query = torch.log(torch.clamp(per_kernel_query, min=1e-10)) * 0.01 #clamp defines an extremely low value as lower bound
+            log_per_kernel_query_masked = log_per_kernel_query * query_pad_oov_mask.unsqueeze(-1) # make sure we mask out padding values
 
-                per_kernel_query = torch.sum(kernel_results_masked, 2)
-                log_per_kernel_query = torch.log(torch.clamp(per_kernel_query, min=1e-10)) * 0.01 #clamp defines an extremely low value as lower bound
-                log_per_kernel_query_masked = log_per_kernel_query * query_pad_oov_mask.unsqueeze(-1) # make sure we mask out padding values
+            per_kernel = torch.sum(log_per_kernel_query_masked, 1) 
 
-                per_kernel = torch.sum(log_per_kernel_query_masked, 1) 
+            soft_tf_features.append(per_kernel)
 
-                soft_tf_features.append(per_kernel)
+        return torch.stack(soft_tf_features)
 
-            soft_tf_features_all_batches.append(tensor.stack(soft_tf_features))
+    def cuda(self: KernelPoolingLayer, device: Optional[Union[int, device]] = None) -> KernelPoolingLayer:
+        self.mu = self.mu.cuda(device)
+        self.sigma = self.sigma.cuda(device)
 
-        return torch.stack(soft_tf_features_all_batches)
+        return super(KernelPoolingLayer, self).cuda(device)
 
     def kernel_mus(self, n_kernels: int):
         """
@@ -165,8 +160,7 @@ class LearningToRankLayer(nn.Module):
         torch.nn.init.uniform_(self.dense.weight, -0.014, 0.014)  # inits taken from matchzoo
 
     def forward(self, soft_tf_features_all_batches: torch.Tensor) -> torch.Tensor:
-        all_grams = torch.cat(soft_tf_features_all_batches, 1)
-
+        all_grams = torch.cat(soft_tf_features_all_batches.unbind(), 1)
         dense_out = self.dense(all_grams)
         tanh_out = torch.tanh(dense_out)
 
@@ -196,6 +190,10 @@ class Conv_KNRM(nn.Module):
         self.learning_to_rank_layer = LearningToRankLayer(n_kernels, n_grams) 
 
     def forward(self, query: Dict[str, torch.Tensor], document: Dict[str, torch.Tensor]) -> torch.Tensor:
+        #todo
+        m = nn.ZeroPad2d((0, document["tokens"].shape[1] - query["tokens"].shape[1], 0, 0))
+
+        query["tokens"] = m(query["tokens"])
 
         # we assume 0 is padding - both need to be removed
         # shape: (batch, query_max)
@@ -203,7 +201,6 @@ class Conv_KNRM(nn.Module):
         # shape: (batch, doc_max)
         document_pad_mask: torch.Tensor = (document["tokens"] > 0).float()
 
-        #todo
         query_by_doc_mask: torch.Tensor = torch.bmm(query_pad_mask.unsqueeze(-1), document_pad_mask.unsqueeze(-1).transpose(-1, -2))
         query_pad_oov_mask = (query["tokens"] > 1).float()
 
@@ -214,3 +211,4 @@ class Conv_KNRM(nn.Module):
         scores_all_batches: torch.Tensor = self.learning_to_rank_layer.forward(soft_tf_features_all_batches) #combines soft-TF ranking into ranking score
 
         return scores_all_batches
+        
