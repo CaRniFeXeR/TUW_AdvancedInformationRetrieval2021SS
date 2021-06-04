@@ -60,11 +60,18 @@ class ConvolutionalLayer(nn.Module):
 
         return torch.stack([query_n_gram_tensor, document_n_gram_tensor]).transpose(-1, -2)
 
-    def cuda(self: ConvolutionalLayer, device: Optional[Union[int, device]] = None) -> ConvolutionalLayer:
-        for conv in self.convolutions:
-            conv.cuda(device)
+    # def cuda(self: ConvolutionalLayer, device: Optional[Union[int, device]] = None) -> ConvolutionalLayer:
+    #     for conv in self.convolutions:
+    #         conv.cuda(device)
 
-        return super(ConvolutionalLayer, self).cuda(device)
+    #     return super(ConvolutionalLayer, self).cuda(device)
+
+    def moveModelToGPU(self) -> nn.Module:
+        for conv in self.convolutions:
+            conv.cuda()
+
+        return self.cuda()
+
 
 class CrossmatchLayer(nn.Module):
     def __init__(self):
@@ -111,11 +118,17 @@ class KernelPoolingLayer(nn.Module):
 
         return torch.stack(soft_tf_features)
 
-    def cuda(self: KernelPoolingLayer, device: Optional[Union[int, device]] = None) -> KernelPoolingLayer:
-        self.mu = self.mu.cuda(device)
-        self.sigma = self.sigma.cuda(device)
+    # def cuda(self: KernelPoolingLayer, device: Optional[Union[int, device]] = None) -> KernelPoolingLayer:
+    #     self.mu = self.mu.cuda(device)
+    #     self.sigma = self.sigma.cuda(device)
 
-        return super(KernelPoolingLayer, self).cuda(device)
+    #     return super(KernelPoolingLayer, self).cuda(device)
+
+    def moveModelToGPU(self) -> nn.Module:
+        self.mu = self.mu.cuda()
+        self.sigma = self.sigma.cuda()
+
+        return self.cuda()
 
     def kernel_mus(self, n_kernels: int):
         """
@@ -212,3 +225,9 @@ class Conv_KNRM(nn.Module):
 
         return scores_all_batches
         
+    def moveModelToGPU(self) -> nn.Module:
+
+        self.convolutional_layer.moveModelToGPU()
+        self.kernel_pooling_layer.moveModelToGPU()
+
+        return self.cuda()
