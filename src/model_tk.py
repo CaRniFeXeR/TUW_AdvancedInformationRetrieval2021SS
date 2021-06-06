@@ -7,10 +7,12 @@ from torch.autograd import Variable
 from allennlp.modules.text_field_embedders import TextFieldEmbedder
 from allennlp.modules.matrix_attention.cosine_matrix_attention import CosineMatrixAttention
 from allennlp_models.rc.modules.seq2seq_encoders.multi_head_self_attention import MultiHeadSelfAttention
+from allennlp_models.rc.modules.seq2seq_encoders.stacked_self_attention import StackedSelfAttentionEncoder
 from allennlp.nn.util import add_positional_features
 from allennlp.modules.feedforward import FeedForward
 from allennlp.nn.activations import Activation
 from allennlp.modules.layer_norm import LayerNorm
+from torch.nn.modules import dropout
 from torch.types import Device
 
 class TransformerBlock(nn.Module):
@@ -95,14 +97,23 @@ class TK(nn.Module):
         self.cosinematrix = CosineMatrixAttention()
 
         # Contextualization
-        self.transformerBlocks : nn.ModuleList[TransformerBlock] = []
-        for i in range(n_layers):
-            self.transformerBlocks.append(
-                TransformerBlock(input_dim= self.n_tf_dim,
-                                 hidden_dim= 100,
-                                 projection_dim= self.tf_projection_dim,
-                                 n_heads = self.n_tf_heads)
-            )
+        self.stackedSelfAtt = StackedSelfAttentionEncoder(input_dim = self.n_tf_dim,
+                                                          hidden_dim = self.n_tf_dim,
+                                                          projection_dim = self.tf_projection_dim,
+                                                          feedforward_hidden_dim = 100,
+                                                          num_layers = n_layers,
+                                                          num_attention_heads = n_tf_heads,
+                                                          dropout_prob = 0,
+                                                          residual_dropout_prob = 0,
+                                                          attention_dropout_prob = 0)
+        # self.transformerBlocks : nn.ModuleList[TransformerBlock] = []
+        # for i in range(n_layers):
+        #     self.transformerBlocks.append(
+        #         TransformerBlock(input_dim= self.n_tf_dim,
+        #                          hidden_dim= 100,
+        #                          projection_dim= self.tf_projection_dim,
+        #                          n_heads = self.n_tf_heads)
+        #     )
 
         self.linear_Slog = nn.Linear(self.n_kernels, 1, bias=False)
         self.linear_Slen = nn.Linear(self.n_kernels, 1, bias=False)
@@ -146,20 +157,22 @@ class TK(nn.Module):
 
         # 1. positional embedding added --> p
         #query_embeddings_pos: (batch_size, query_len, embedding_dim)
-        query_embeddings_pos = add_positional_features(query_embeddings)
-        #document_embeddings_pos: (batch_size, document_len, embedding_dim)
-        document_embeddings_pos = add_positional_features(document_embeddings)
+        # query_embeddings_pos = add_positional_features(query_embeddings)
+        # #document_embeddings_pos: (batch_size, document_len, embedding_dim)
+        # document_embeddings_pos = add_positional_features(document_embeddings)
 
         # 2 transformer layers
 
+        query_contextualized = self.stackedSelfAtt(query_embeddings, query_pad_oov_mask_bool)
+        document_contextualized = self.stackedSelfAtt(document_embeddings, document_pad_oov_mask_bool)
         # transformer(p) = MutliHead(FF(p)) + FF(p)       FF: two-layer fully connected non-linear activation
-        query_contextualized = query_embeddings_pos
-        document_contextualized = document_embeddings_pos
+        # query_contextualized = query_embeddings_pos
+        # document_contextualized = document_embeddings_pos
 
-        # n transformer blocks
-        for transformerBlock in self.transformerBlocks:
-            query_contextualized = transformerBlock(query_contextualized, query_pad_oov_mask_bool)
-            document_contextualized = transformerBlock(document_contextualized, document_pad_oov_mask_bool)
+        # # n transformer blocks
+        # for transformerBlock in self.transformerBlocks:
+        #     query_contextualized = transformerBlock(query_contextualized, query_pad_oov_mask_bool)
+        #     document_contextualized = transformerBlock(document_contextualized, document_pad_oov_mask_bool)
 
         # ^t_i =t_i * alpha + context(t1:n)_i * (1- alpha) --> alpha controls the influence of contextualization --> is also learned
         query_embedded_contextualized = (self.mixer * query_embeddings) + (1 - self.mixer) * query_contextualized
@@ -282,17 +295,17 @@ class TK(nn.Module):
         self.mu = self.mu.cuda()
         self.sigma = self.sigma.cuda()
 
-        for transformerBlock in self.transformerBlocks:
-            transformerBlock.cuda()
+        # for transformerBlock in self.transformerBlocks:
+        #     transformerBlock.cuda()
 
         return self.cuda()
 
     def get_named_parameters(self):
         named_pars = [(pName, par) for pName, par in self.named_parameters()]
 
-        for transformerBlock in self.transformerBlocks:
-            transformer_pars = [(pName, par) for pName, par in transformerBlock.named_parameters()]
-            named_pars = named_pars + transformer_pars
+        # for transformerBlock in self.transformerBlocks:
+        #     transformer_pars = [(pName, par) for pName, par in transformerBlock.named_parameters()]
+        #     named_pars = named_pars + transformer_pars
 
         return named_pars
 
