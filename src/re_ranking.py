@@ -410,7 +410,7 @@ earlyStoppingWatchter = EarlyStoppingWatcher(patience=400) \
 
 earlyStoppingReached = False
 total_batch_count = 0
-model_path == ""
+model_path = ""
 
 for epoch in range(config["n_training_epochs"]):
 
