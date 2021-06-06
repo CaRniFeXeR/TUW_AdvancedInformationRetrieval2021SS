@@ -1,4 +1,4 @@
-from typing import Dict, Iterator, List
+from typing import Dict, Iterator, List, Tuple
 
 import torch
 import torch.nn as nn
@@ -6,15 +6,16 @@ from torch.autograd import Variable
 import torch.nn.functional as F
 
 from allennlp.modules.text_field_embedders import TextFieldEmbedder
-from allennlp.modules.matrix_attention.cosine_matrix_attention import CosineMatrixAttention              
+from allennlp.modules.matrix_attention.cosine_matrix_attention import CosineMatrixAttention
+
 
 class WordEmbeddingLayer(nn.Module):
     def __init__(self, word_embeddings: TextFieldEmbedder):
         super(WordEmbeddingLayer, self).__init__()
 
-        self.word_embeddings = word_embeddings        
+        self.word_embeddings = word_embeddings
 
-    def forward(self, query_input: Dict[str, torch.Tensor], document_intput: Dict[str, torch.Tensor]) -> torch.Tensor:
+    def forward(self, query_input: Dict[str, torch.Tensor], document_intput: Dict[str, torch.Tensor]) -> Tuple[torch.Tensor, torch.Tensor]:
         # shape: (batch, query_max,emb_dim)
         query_embeddings_tensor = self.word_embeddings({"tokens": query_input})
         # shape: (batch, document_max,emb_dim)
@@ -24,7 +25,8 @@ class WordEmbeddingLayer(nn.Module):
 
         query_embeddings_tensor = m(query_embeddings_tensor)
 
-        return torch.stack([query_embeddings_tensor, document_embeddings_tensor]).transpose(-1, -2)
+        return query_embeddings_tensor.transpose(-1, -2), document_embeddings_tensor.transpose(-1, -2)
+
 
 class ConvolutionalLayer(nn.Module):
     def __init__(self, n_grams: int, conv_in_dim: int, conv_out_dim: int):
@@ -32,23 +34,22 @@ class ConvolutionalLayer(nn.Module):
 
         self.convolutions = nn.ModuleList()
 
-        #adds convolution for each ngram
+        # adds convolution for each ngram
         for i in range(1, n_grams + 1):
             self.convolutions.append(
                 nn.Sequential(
-                    nn.ConstantPad1d((0, i - 1), 0), #adds padding to keep same dimension
-                    nn.Conv1d(kernel_size=i, in_channels=conv_in_dim, out_channels=conv_out_dim), #kernel size gets changed for each convolution, sets input channels to dimensions of word embeddings, sets outputput to desired output dimensions
+                    nn.ConstantPad1d((0, i - 1), 0),  # adds padding to keep same dimension
+                    # kernel size gets changed for each convolution, sets input channels to dimensions of word embeddings, sets outputput to desired output dimensions
+                    nn.Conv1d(kernel_size=i, in_channels=conv_in_dim, out_channels=conv_out_dim),
                     nn.ReLU()
                 )
             )
 
-    def forward(self, query_document_tensor: torch.Tensor) -> torch.Tensor:
+    def forward(self, query_tensor: torch.Tensor, document_tensor: torch.Tensor) -> Tuple[torch.Tensor]:
         query_results = []
         document_results = []
 
-        query_tensor, document_tensor = torch.unbind(query_document_tensor)
-
-        for i,conv in enumerate(self.convolutions):
+        for i, conv in enumerate(self.convolutions):
             query_conv = conv(query_tensor)
             document_conv = conv(document_tensor)
 
@@ -58,7 +59,7 @@ class ConvolutionalLayer(nn.Module):
         query_n_gram_tensor = torch.stack(query_results)
         document_n_gram_tensor = torch.stack(document_results)
 
-        return torch.stack([query_n_gram_tensor, document_n_gram_tensor]).transpose(-1, -2)
+        return query_n_gram_tensor.transpose(-1,-2), document_n_gram_tensor.transpose(-1,-2)
 
     # def cuda(self: ConvolutionalLayer, device: Optional[Union[int, device]] = None) -> ConvolutionalLayer:
     #     for conv in self.convolutions:
@@ -77,13 +78,11 @@ class CrossmatchLayer(nn.Module):
     def __init__(self):
         super(CrossmatchLayer, self).__init__()
 
-        # this does not really do "attention" - just a plain cosine matrix calculation (without learnable weights) 
+        # this does not really do "attention" - just a plain cosine matrix calculation (without learnable weights)
         self.cosine_module = CosineMatrixAttention()
 
-    def forward(self, query_document_n_gram_tensor: torch.Tensor, query_by_doc_mask: torch.Tensor) -> torch.Tensor:
+    def forward(self, query_tensor: torch.Tensor, document_tensor: torch.Tensor, query_by_doc_mask: torch.Tensor) -> List[torch.Tensor]:
         match_matrices = []
-
-        query_tensor, document_tensor = torch.unbind(query_document_n_gram_tensor)
 
         for i in range(len(query_tensor)):
             for t in range(len(query_tensor)):
@@ -92,7 +91,8 @@ class CrossmatchLayer(nn.Module):
 
                 match_matrices.append(cosine_matrix_masked.unsqueeze(-1))
 
-        return torch.stack(match_matrices)
+        return match_matrices
+
 
 class KernelPoolingLayer(nn.Module):
     def __init__(self, n_kernels: int):
@@ -101,7 +101,7 @@ class KernelPoolingLayer(nn.Module):
         self.mu = Variable(torch.FloatTensor(self.kernel_mus(n_kernels)), requires_grad=False).view(1, 1, 1, n_kernels)
         self.sigma = Variable(torch.FloatTensor(self.kernel_sigmas(n_kernels)), requires_grad=False).view(1, 1, 1, n_kernels)
 
-    def forward(self, match_matrices_all_batches: torch.Tensor, query_by_doc_mask: torch.Tensor, query_pad_oov_mask: torch.Tensor) -> torch.Tensor:
+    def forward(self, match_matrices_all_batches: List[torch.Tensor], query_by_doc_mask: torch.Tensor, query_pad_oov_mask: torch.Tensor) -> torch.Tensor:
         soft_tf_features = []
 
         for i, match_matrix in enumerate(match_matrices_all_batches):
@@ -109,10 +109,10 @@ class KernelPoolingLayer(nn.Module):
             kernel_results_masked = raw_kernel_results * query_by_doc_mask.unsqueeze(-1)
 
             per_kernel_query = torch.sum(kernel_results_masked, 2)
-            log_per_kernel_query = torch.log(torch.clamp(per_kernel_query, min=1e-10)) * 0.01 #clamp defines an extremely low value as lower bound
-            log_per_kernel_query_masked = log_per_kernel_query * query_pad_oov_mask.unsqueeze(-1) # make sure we mask out padding values
+            log_per_kernel_query = torch.log(torch.clamp(per_kernel_query, min=1e-10)) * 0.01  # clamp defines an extremely low value as lower bound
+            log_per_kernel_query_masked = log_per_kernel_query * query_pad_oov_mask.unsqueeze(-1)  # make sure we mask out padding values
 
-            per_kernel = torch.sum(log_per_kernel_query_masked, 1) 
+            per_kernel = torch.sum(log_per_kernel_query_masked, 1)
 
             soft_tf_features.append(per_kernel)
 
@@ -162,12 +162,13 @@ class KernelPoolingLayer(nn.Module):
         l_sigma += [0.5 * bin_size] * (n_kernels - 1)
         return l_sigma
 
+
 class LearningToRankLayer(nn.Module):
     def __init__(self, n_kernels: int, n_grams: int):
         super(LearningToRankLayer, self).__init__()
 
         # *9 because we concat the 3x3 conv match sums together before the dense layer
-        self.dense = nn.Linear(n_kernels * n_grams * n_grams, 1, bias=False) 
+        self.dense = nn.Linear(n_kernels * n_grams * n_grams, 1, bias=False)
 
         # init with small weights, otherwise the dense output is way to high fot
         torch.nn.init.uniform_(self.dense.weight, -0.014, 0.014)  # inits taken from matchzoo
@@ -180,6 +181,7 @@ class LearningToRankLayer(nn.Module):
         output = torch.squeeze(tanh_out, 1)
         return output
 
+
 class Conv_KNRM(nn.Module):
     '''
     Paper: Convolutional Neural Networks for Soſt-Matching N-Grams in Ad-hoc Search, Dai et al. WSDM 18
@@ -187,44 +189,45 @@ class Conv_KNRM(nn.Module):
 
     def __init__(self,
                  word_embeddings: TextFieldEmbedder,
-                 n_grams:int,
+                 n_grams: int,
                  n_kernels: int,
-                 conv_out_dim:int):
+                 conv_out_dim: int):
 
         super(Conv_KNRM, self).__init__()
 
         # todo
 
-        #define layers
-        self.word_embedding_layer = WordEmbeddingLayer(word_embeddings) 
-        self.convolutional_layer = ConvolutionalLayer(n_grams, word_embeddings.get_output_dim(), conv_out_dim) 
-        self.crossmatch_layer = CrossmatchLayer() 
+        # define layers
+        self.word_embedding_layer = WordEmbeddingLayer(word_embeddings)
+        self.convolutional_layer = ConvolutionalLayer(n_grams, word_embeddings.get_output_dim(), conv_out_dim)
+        self.crossmatch_layer = CrossmatchLayer()
         self.kernel_pooling_layer = KernelPoolingLayer(n_kernels)
-        self.learning_to_rank_layer = LearningToRankLayer(n_kernels, n_grams) 
+        self.learning_to_rank_layer = LearningToRankLayer(n_kernels, n_grams)
 
     def forward(self, query: Dict[str, torch.Tensor], document: Dict[str, torch.Tensor]) -> torch.Tensor:
-        #todo
+        # todo
         m = nn.ZeroPad2d((0, document["tokens"].shape[1] - query["tokens"].shape[1], 0, 0))
 
         query["tokens"] = m(query["tokens"])
 
         # we assume 0 is padding - both need to be removed
         # shape: (batch, query_max)
-        query_pad_mask: torch.Tensor = (query["tokens"] > 0).float() # > 1 to also mask oov terms
+        query_pad_mask: torch.Tensor = (query["tokens"] > 0).float()  # > 1 to also mask oov terms
         # shape: (batch, doc_max)
         document_pad_mask: torch.Tensor = (document["tokens"] > 0).float()
 
         query_by_doc_mask: torch.Tensor = torch.bmm(query_pad_mask.unsqueeze(-1), document_pad_mask.unsqueeze(-1).transpose(-1, -2))
         query_pad_oov_mask = (query["tokens"] > 1).float()
 
-        query_document_embedding_tensor: torch.Tensor = self.word_embedding_layer.forward(query, document) #this layer creates the word embeddings
-        query_document_n_gram_tensor: torch.Tensor = self.convolutional_layer.forward(query_document_embedding_tensor) #this layer uses convolutions to compose n-gram embeddings
-        match_matrices_all_batches: torch.Tensor = self.crossmatch_layer.forward(query_document_n_gram_tensor, query_by_doc_mask) #this layer matches query n-grams and document n-grams of different resolutions
+        query_embeddings_tensor, document_embeddings_tensor = self.word_embedding_layer.forward(query, document)  # this layer creates the word embeddings
+        query_n_gram_tensor, document_n_gram_tensor = self.convolutional_layer.forward(query_embeddings_tensor, document_embeddings_tensor)  # this layer uses convolutions to compose n-gram embeddings
+        # this layer matches query n-grams and document n-grams of different resolutions
+        match_matrices_all_batches: List[torch.Tensor] = self.crossmatch_layer.forward(query_n_gram_tensor, document_n_gram_tensor, query_by_doc_mask)
         soft_tf_features_all_batches: torch.Tensor = self.kernel_pooling_layer.forward(match_matrices_all_batches, query_by_doc_mask, query_pad_oov_mask)
-        scores_all_batches: torch.Tensor = self.learning_to_rank_layer.forward(soft_tf_features_all_batches) #combines soft-TF ranking into ranking score
+        scores_all_batches: torch.Tensor = self.learning_to_rank_layer.forward(soft_tf_features_all_batches)  # combines soft-TF ranking into ranking score
 
         return scores_all_batches
-        
+
     def moveModelToGPU(self) -> nn.Module:
 
         self.convolutional_layer.moveModelToGPU()
