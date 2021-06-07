@@ -167,9 +167,9 @@ class LearningToRankLayer(nn.Module):
     def forward(self, soft_tf_features_all_batches: List[torch.Tensor]) -> torch.Tensor:
         all_grams = torch.cat(soft_tf_features_all_batches, 1)
         dense_out = self.dense(all_grams)
-        tanh_out = torch.tanh(dense_out)
+        # tanh_out = torch.tanh(dense_out)
 
-        output = torch.squeeze(tanh_out, 1)
+        output = torch.squeeze(dense_out, 1)
         return output
 
 
