@@ -35,7 +35,8 @@ class FNetBlock(nn.Module):
     def fourier_transform(x):
         # x = torch.fft.fft(torch.fft.fft(x, dim=-1), dim=-2).real
         # return torch.fft2(x, dim=(-1, -2)).real
-        return fftn(x, dim=(-1, -2)).real
+        # return fftn(x, dim=(-1, -2)).real
+        return torch.fft.fft(torch.fft.fft(x, dim=-1), dim=-2).real
 
     def __init__(self, dim : int, expensionFactor : int): # n_ff_hidden_dim : int
         super().__init__()
@@ -44,14 +45,15 @@ class FNetBlock(nn.Module):
         self.norm2 = nn.LayerNorm(self.dim)
         self.ff = FNetFeedForward(dim, expensionFactor= expensionFactor)
 
-    def forward(self, x):
+    def forward(self, x : torch.Tensor, mask : torch.Tensor):
         
-        dft_output = FNetBlock.fourier_transform(x)
-        dft_output_normed = self.norm1(dft_output + x)
+        dft_output = FNetBlock.fourier_transform(x) * mask
+        dft_output_normed = self.norm1((dft_output + x))
         x = dft_output_normed
 
-        dft_output = FNetBlock.fourier_transform(x)
-        output = self.norm1(dft_output + x)
+        ff_output = self.ff(x)
+        output = (ff_output + x)
+        output = self.norm2(output)
         return output
 
 
@@ -103,7 +105,7 @@ class FK(nn.Module):
             self.fNetBlocks.append(
                 FNetBlock(
                     self.n_fnet_dim,
-                    expensionFactor= 4
+                    expensionFactor= 1
                 )
             )
 
@@ -162,8 +164,8 @@ class FK(nn.Module):
 
         # n fnet blocks
         for fnet in self.fNetBlocks:
-            query_contextualized = fnet(query_contextualized)
-            document_contextualized = fnet(document_contextualized)
+            query_contextualized = fnet(query_contextualized, query_pad_oov_mask.unsqueeze(-1))
+            document_contextualized = fnet(document_contextualized, document_pad_oov_mask.unsqueeze(-1))
 
         # ^t_i =t_i * alpha + context(t1:n)_i * (1- alpha) --> alpha controls the influence of contextualization --> is also learned
         # query_embedded_contextualized = (self.alpha * query_embeddings) + (1 - self.alpha) * query_contextualized

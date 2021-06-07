@@ -197,6 +197,10 @@ class EarlyStoppingWatcher:
             criteria.reset()
 
     @property
+    def has_no_strikes(self) -> bool:
+        return self.n_strike == 0
+
+    @property
     def reason(self) -> str:
 
         result = f"strikes: {self.n_strike} "
@@ -284,6 +288,7 @@ def evaluateModel(model: nn.Module, tupleLoader: PyTorchDataLoader, relevanceLab
 
 # region [Config & wandb]
 
+
 torch.manual_seed(32)
 
 # change paths to your data directory
@@ -296,13 +301,13 @@ config = {
     "test_data": "data/msmarco_tuples.test.tsv",
     "qrels_data": "data/msmarco_qrels.txt",
     "onGPU": torch.cuda.is_available(),
-    "train_word_embedding" : True,
+    "train_word_embedding": True,
     "n_training_epochs": 3,
     "traning_batch_size": 128,
-    "eval_batch_size": 256,
+    "eval_batch_size": 128,  
     "validation_interval": 250,
     "learning_rate": 0.001,
-    "weight_decay": 0.01,
+    "weight_decay": 0.000000000000001,
     "use_wandb": True,
     "wandb_entity": "floko",
     "wandb_log_interval": 10
@@ -343,13 +348,16 @@ word_embedder = BasicTextFieldEmbedder({"tokens": tokens_embedder})
 if config["model"] == "knrm":
     model = KNRM(word_embedder, n_kernels=11)
 elif config["model"] == "conv_knrm":
+    #"learning_rate": 0.001 useful for conv_knrm to perform
     model = Conv_KNRM(word_embedder, n_grams=3, n_kernels=11, conv_out_dim=128)
 elif config["model"] == "tk":
-    #"learning_rate": 0.0001 needed for tk to perform
+    # "learning_rate": 0.0001 needed for tk to perform
     model = TK(word_embedder, n_kernels=11, n_layers=2, n_tf_dim=300, n_tf_heads=10, tf_projection_dim=30)
 elif config["model"] == "fk":
     # learning_rate" : 0.001 needed for fk to perform
-    model = FK(word_embedder, n_kernels=11, n_layers=8, n_fnet_dim=300)
+    model = FK(word_embedder, n_kernels=11, n_layers=2, n_fnet_dim=300)
+else:
+    raise ValueError("no known model configured!")
 
 if use_wandb and hasattr(model, "fill_wandb_config"):
     model.fill_wandb_config(wandb_config)
@@ -395,16 +403,20 @@ for p_name, par in namedParamsIt:
     if config["train_word_embedding"] == True or not "word_embeddings" in p_name:
         paramsToTrain.append(par)
 
-optimizer = torch.optim.Adam(paramsToTrain, lr=config["learning_rate"], weight_decay=config["weight_decay"])
+optimizer = torch.optim.AdamW(paramsToTrain, lr=config["learning_rate"], weight_decay=config["weight_decay"])
 
 # early stopping
-earlyStoppingWatchter = EarlyStoppingWatcher(patience=400) \
+earlyStoppingWatchter = EarlyStoppingWatcher(patience=150) \
     .addCriteria(MaxIterationCriteria(100000)) \
     .addCriteria(MinDeltaCriteria(0.001)) \
     .addCriteria(MinStdCritera(min_std=0.001, window_size=40))
 
 earlyStoppingReached = False
 total_batch_count = 0
+model_path = ""
+
+if use_wandb:
+    wandb.watch(model, log='all') 
 
 for epoch in range(config["n_training_epochs"]):
 
@@ -450,6 +462,11 @@ for epoch in range(config["n_training_epochs"]):
                 print(f"early stopping reason: {earlyStoppingWatchter.reason}")
                 earlyStoppingReached = True
                 break
+            elif i > 15 and result['MRR@10'] > 0.14 and earlyStoppingWatchter.has_no_strikes:
+                # best model --> save
+                if model_path == "":
+                    model_path = f"outdir/model_{config['model']}_{datetime.now().strftime('%d_%m_%Y %H_%M')}.pt"
+                torch.save(model.state_dict(), model_path)
 
             model.train(mode=True)
 
@@ -480,6 +497,11 @@ for epoch in range(config["n_training_epochs"]):
 # otherwise it will overwrite the original train iterator, which is instantiated outside the loop)
 #
 
+if model_path == "":
+    torch.save(model.state_dict(), f"outdir/model_{config['model']}_{datetime.now().strftime('%d_%m_%Y %H_%M')}.pt")
+else:
+    model.load_state_dict(torch.load(model_path))
+
 _tuple_reader = IrLabeledTupleDatasetReader(lazy=True, max_doc_length=180, max_query_length=30)
 _tuple_reader = _tuple_reader.read(config["test_data"])
 _tuple_reader.index_with(vocab)
@@ -492,6 +514,5 @@ print(f"testset Score MRR@10 : {result['MRR@10']:.3f}")
 if use_wandb:
     wandb.log({"test_MRR@10": result['MRR@10'], "global_step": total_batch_count})
 
-torch.save(model.state_dict(), f"outdir/model_{config['model']}_{datetime.now().strftime('%d_%m_%Y %H_%M')}.pt")
 
 # endregion
