@@ -19,7 +19,7 @@ class WordEmbeddingLayer(nn.Module):
         query_embeddings_tensor = self.word_embeddings({"tokens": query_input})
         # shape: (batch, document_max,emb_dim)
         document_embeddings_tensor = self.word_embeddings({"tokens": document_intput})
-        return query_embeddings_tensor.transpose(-1, -2), document_embeddings_tensor.transpose(-1, -2)
+        return query_embeddings_tensor.transpose(1, 2), document_embeddings_tensor.transpose(1, 2)
 
 
 class ConvolutionalLayer(nn.Module):
@@ -39,7 +39,7 @@ class ConvolutionalLayer(nn.Module):
                 )
             )
 
-    def forward(self, query_tensor: torch.Tensor, document_tensor: torch.Tensor) -> Tuple[torch.Tensor]:
+    def forward(self, query_tensor: torch.Tensor, document_tensor: torch.Tensor) -> Tuple[List[torch.Tensor], List[torch.Tensor]]:
         query_results = []
         document_results = []
 
@@ -47,13 +47,10 @@ class ConvolutionalLayer(nn.Module):
             query_conv = conv(query_tensor)
             document_conv = conv(document_tensor)
 
-            query_results.append(query_conv)
-            document_results.append(document_conv)
+            query_results.append(query_conv.transpose(1, 2))
+            document_results.append(document_conv.transpose(1, 2))
 
-        query_n_gram_tensor = torch.stack(query_results)
-        document_n_gram_tensor = torch.stack(document_results)
-
-        return query_n_gram_tensor.transpose(-1,-2), document_n_gram_tensor.transpose(-1,-2)
+        return query_results, document_results
 
     # def cuda(self: ConvolutionalLayer, device: Optional[Union[int, device]] = None) -> ConvolutionalLayer:
     #     for conv in self.convolutions:
@@ -75,12 +72,12 @@ class CrossmatchLayer(nn.Module):
         # this does not really do "attention" - just a plain cosine matrix calculation (without learnable weights)
         self.cosine_module = CosineMatrixAttention()
 
-    def forward(self, query_tensor: torch.Tensor, document_tensor: torch.Tensor, query_by_doc_mask: torch.Tensor) -> List[torch.Tensor]:
+    def forward(self, query_tensors: List[torch.Tensor], document_tensors: List[torch.Tensor], query_by_doc_mask: torch.Tensor) -> List[torch.Tensor]:
         match_matrices = []
 
-        for i in range(len(query_tensor)):
-            for t in range(len(query_tensor)):
-                cosine_matrix: torch.Tensor = self.cosine_module.forward(query_tensor[i], document_tensor[t])
+        for i in range(len(query_tensors)):
+            for t in range(len(query_tensors)):
+                cosine_matrix: torch.Tensor = self.cosine_module.forward(query_tensors[i], document_tensors[t])
                 cosine_matrix_masked: torch.Tensor = cosine_matrix * query_by_doc_mask
 
                 match_matrices.append(cosine_matrix_masked.unsqueeze(-1))
@@ -95,7 +92,7 @@ class KernelPoolingLayer(nn.Module):
         self.mu = Variable(torch.FloatTensor(self.kernel_mus(n_kernels)), requires_grad=False).view(1, 1, 1, n_kernels)
         self.sigma = Variable(torch.FloatTensor(self.kernel_sigmas(n_kernels)), requires_grad=False).view(1, 1, 1, n_kernels)
 
-    def forward(self, match_matrices_all_batches: List[torch.Tensor], query_by_doc_mask: torch.Tensor, query_pad_oov_mask: torch.Tensor) -> torch.Tensor:
+    def forward(self, match_matrices_all_batches: List[torch.Tensor], query_by_doc_mask: torch.Tensor, query_pad_oov_mask: torch.Tensor) -> List[torch.Tensor]:
         soft_tf_features = []
 
         for i, match_matrix in enumerate(match_matrices_all_batches):
@@ -110,7 +107,7 @@ class KernelPoolingLayer(nn.Module):
 
             soft_tf_features.append(per_kernel)
 
-        return torch.stack(soft_tf_features)
+        return soft_tf_features
 
     # def cuda(self: KernelPoolingLayer, device: Optional[Union[int, device]] = None) -> KernelPoolingLayer:
     #     self.mu = self.mu.cuda(device)
@@ -167,8 +164,8 @@ class LearningToRankLayer(nn.Module):
         # init with small weights, otherwise the dense output is way to high fot
         torch.nn.init.uniform_(self.dense.weight, -0.014, 0.014)  # inits taken from matchzoo
 
-    def forward(self, soft_tf_features_all_batches: torch.Tensor) -> torch.Tensor:
-        all_grams = torch.cat(soft_tf_features_all_batches.unbind(), 1)
+    def forward(self, soft_tf_features_all_batches: List[torch.Tensor]) -> torch.Tensor:
+        all_grams = torch.cat(soft_tf_features_all_batches, 1)
         dense_out = self.dense(all_grams)
         tanh_out = torch.tanh(dense_out)
 

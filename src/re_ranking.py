@@ -295,7 +295,7 @@ torch.manual_seed(32)
 config = {
     "vocab_directory": "data/allen_vocab_lower_10",
     "pre_trained_embedding": "data/glove.42B.300d.txt",
-    "model": "tk",
+    "model": "conv_knrm",
     "train_data": "data/triples.train.tsv",
     "validation_data": "data/msmarco_tuples.validation.tsv",
     "test_data": "data/msmarco_tuples.test.tsv",
@@ -306,8 +306,8 @@ config = {
     "traning_batch_size": 128,
     "eval_batch_size": 64,  
     "validation_interval": 250,
-    "learning_rate": 0.0001,
-    "weight_decay": 0.0000000000000001,
+    "learning_rate": 0.001,
+    "weight_decay": 0.000000000000001,
     "use_wandb": True,
     "wandb_entity": "floko",
     "wandb_log_interval": 10
@@ -403,10 +403,10 @@ for p_name, par in namedParamsIt:
     if config["train_word_embedding"] == True or not "word_embeddings" in p_name:
         paramsToTrain.append(par)
 
-optimizer = torch.optim.Adam(paramsToTrain, lr=config["learning_rate"], weight_decay=config["weight_decay"])
+optimizer = torch.optim.AdamW(paramsToTrain, lr=config["learning_rate"], weight_decay=config["weight_decay"])
 
 # early stopping
-earlyStoppingWatchter = EarlyStoppingWatcher(patience=250) \
+earlyStoppingWatchter = EarlyStoppingWatcher(patience=150) \
     .addCriteria(MaxIterationCriteria(100000)) \
     .addCriteria(MinDeltaCriteria(0.001)) \
     .addCriteria(MinStdCritera(min_std=0.001, window_size=40))
