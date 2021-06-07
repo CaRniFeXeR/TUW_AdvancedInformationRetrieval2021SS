@@ -4,4 +4,4 @@ torch==1.6.0
 blingfire==0.0.9
 PyYAML==5.3.1
 transformers==3.5.1
-#wandb==0.10.30
+wandb==0.10.30
