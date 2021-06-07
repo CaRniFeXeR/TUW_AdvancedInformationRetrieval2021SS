@@ -295,7 +295,7 @@ torch.manual_seed(32)
 config = {
     "vocab_directory": "data/allen_vocab_lower_10",
     "pre_trained_embedding": "data/glove.42B.300d.txt",
-    "model": "fk",
+    "model": "tk",
     "train_data": "data/triples.train.tsv",
     "validation_data": "data/msmarco_tuples.validation.tsv",
     "test_data": "data/msmarco_tuples.test.tsv",
@@ -306,7 +306,7 @@ config = {
     "traning_batch_size": 128,
     "eval_batch_size": 64,  
     "validation_interval": 250,
-    "learning_rate": 0.001,
+    "learning_rate": 0.0001,
     "weight_decay": 0.0000000000000001,
     "use_wandb": True,
     "wandb_entity": "floko",
@@ -416,7 +416,7 @@ total_batch_count = 0
 model_path = ""
 
 if use_wandb:
-    wandb.watch(model)
+    wandb.watch(model, log='all') 
 
 for epoch in range(config["n_training_epochs"]):
 
@@ -462,7 +462,7 @@ for epoch in range(config["n_training_epochs"]):
                 print(f"early stopping reason: {earlyStoppingWatchter.reason}")
                 earlyStoppingReached = True
                 break
-            elif i > 15 and earlyStoppingWatchter.has_no_strikes:
+            elif i > 15 and result['MRR@10'] > 0.14 and earlyStoppingWatchter.has_no_strikes:
                 # best model --> save
                 if model_path == "":
                     model_path = f"outdir/model_{config['model']}_{datetime.now().strftime('%d_%m_%Y %H_%M')}.pt"
