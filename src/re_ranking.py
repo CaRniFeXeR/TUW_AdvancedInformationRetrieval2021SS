@@ -304,7 +304,7 @@ config = {
     "train_word_embedding": True,
     "n_training_epochs": 3,
     "traning_batch_size": 128,
-    "eval_batch_size": 64,  
+    "eval_batch_size": 128,  
     "validation_interval": 250,
     "learning_rate": 0.001,
     "weight_decay": 0.000000000000001,
@@ -348,7 +348,7 @@ word_embedder = BasicTextFieldEmbedder({"tokens": tokens_embedder})
 if config["model"] == "knrm":
     model = KNRM(word_embedder, n_kernels=11)
 elif config["model"] == "conv_knrm":
-    #"learning_rate": 0.01 useful for conv_knrm to perform
+    #"learning_rate": 0.001 useful for conv_knrm to perform
     model = Conv_KNRM(word_embedder, n_grams=3, n_kernels=11, conv_out_dim=128)
 elif config["model"] == "tk":
     # "learning_rate": 0.0001 needed for tk to perform
