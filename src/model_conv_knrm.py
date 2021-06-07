@@ -1,9 +1,8 @@
-from typing import Dict, Iterator, List, Tuple
+from typing import Dict, List, Tuple
 
 import torch
 import torch.nn as nn
 from torch.autograd import Variable
-import torch.nn.functional as F
 
 from allennlp.modules.text_field_embedders import TextFieldEmbedder
 from allennlp.modules.matrix_attention.cosine_matrix_attention import CosineMatrixAttention
@@ -20,11 +19,6 @@ class WordEmbeddingLayer(nn.Module):
         query_embeddings_tensor = self.word_embeddings({"tokens": query_input})
         # shape: (batch, document_max,emb_dim)
         document_embeddings_tensor = self.word_embeddings({"tokens": document_intput})
-
-        m = nn.ZeroPad2d((0, 0, 0, document_embeddings_tensor.shape[1] - query_embeddings_tensor.shape[1]))
-
-        query_embeddings_tensor = m(query_embeddings_tensor)
-
         return query_embeddings_tensor.transpose(-1, -2), document_embeddings_tensor.transpose(-1, -2)
 
 
@@ -205,10 +199,6 @@ class Conv_KNRM(nn.Module):
         self.learning_to_rank_layer = LearningToRankLayer(n_kernels, n_grams)
 
     def forward(self, query: Dict[str, torch.Tensor], document: Dict[str, torch.Tensor]) -> torch.Tensor:
-        # todo
-        m = nn.ZeroPad2d((0, document["tokens"].shape[1] - query["tokens"].shape[1], 0, 0))
-
-        query["tokens"] = m(query["tokens"])
 
         # we assume 0 is padding - both need to be removed
         # shape: (batch, query_max)
