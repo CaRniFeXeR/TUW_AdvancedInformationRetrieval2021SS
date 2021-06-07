@@ -295,7 +295,7 @@ torch.manual_seed(32)
 config = {
     "vocab_directory": "data/allen_vocab_lower_10",
     "pre_trained_embedding": "data/glove.42B.300d.txt",
-    "model": "conv_knrm",
+    "model": "fk",
     "train_data": "data/triples.train.tsv",
     "validation_data": "data/msmarco_tuples.validation.tsv",
     "test_data": "data/msmarco_tuples.test.tsv",
@@ -303,11 +303,11 @@ config = {
     "onGPU": torch.cuda.is_available(),
     "train_word_embedding": True,
     "n_training_epochs": 3,
-    "traning_batch_size": 64,
-    "eval_batch_size": 256,
+    "traning_batch_size": 128,
+    "eval_batch_size": 64,  
     "validation_interval": 250,
     "learning_rate": 0.001,
-    "weight_decay": 0.01,
+    "weight_decay": 0.0000000000000001,
     "use_wandb": True,
     "wandb_entity": "floko",
     "wandb_log_interval": 10
@@ -348,13 +348,16 @@ word_embedder = BasicTextFieldEmbedder({"tokens": tokens_embedder})
 if config["model"] == "knrm":
     model = KNRM(word_embedder, n_kernels=11)
 elif config["model"] == "conv_knrm":
+    #"learning_rate": 0.01 useful for conv_knrm to perform
     model = Conv_KNRM(word_embedder, n_grams=3, n_kernels=11, conv_out_dim=128)
 elif config["model"] == "tk":
     # "learning_rate": 0.0001 needed for tk to perform
     model = TK(word_embedder, n_kernels=11, n_layers=2, n_tf_dim=300, n_tf_heads=10, tf_projection_dim=30)
 elif config["model"] == "fk":
     # learning_rate" : 0.001 needed for fk to perform
-    model = FK(word_embedder, n_kernels=11, n_layers=8, n_fnet_dim=300)
+    model = FK(word_embedder, n_kernels=11, n_layers=2, n_fnet_dim=300)
+else:
+    raise ValueError("no known model configured!")
 
 if use_wandb and hasattr(model, "fill_wandb_config"):
     model.fill_wandb_config(wandb_config)
@@ -403,7 +406,7 @@ for p_name, par in namedParamsIt:
 optimizer = torch.optim.Adam(paramsToTrain, lr=config["learning_rate"], weight_decay=config["weight_decay"])
 
 # early stopping
-earlyStoppingWatchter = EarlyStoppingWatcher(patience=400) \
+earlyStoppingWatchter = EarlyStoppingWatcher(patience=250) \
     .addCriteria(MaxIterationCriteria(100000)) \
     .addCriteria(MinDeltaCriteria(0.001)) \
     .addCriteria(MinStdCritera(min_std=0.001, window_size=40))
@@ -411,6 +414,9 @@ earlyStoppingWatchter = EarlyStoppingWatcher(patience=400) \
 earlyStoppingReached = False
 total_batch_count = 0
 model_path = ""
+
+if use_wandb:
+    wandb.watch(model)
 
 for epoch in range(config["n_training_epochs"]):
 
