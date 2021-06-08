@@ -7,7 +7,6 @@ from torch.autograd import Variable
 from allennlp.modules.text_field_embedders import TextFieldEmbedder
 from allennlp.modules.matrix_attention.cosine_matrix_attention import CosineMatrixAttention
 from allennlp_models.rc.modules.seq2seq_encoders.multi_head_self_attention import MultiHeadSelfAttention
-from allennlp_models.rc.modules.seq2seq_encoders.stacked_self_attention import StackedSelfAttentionEncoder
 from allennlp.nn.util import add_positional_features
 from allennlp.modules.feedforward import FeedForward
 from allennlp.nn.activations import Activation
@@ -62,15 +61,6 @@ class ContextualizationLayer(nn.Module):
                  hidden_dim: int):
         super(ContextualizationLayer, self).__init__()
 
-        # self.stackedSelfAtt = StackedSelfAttentionEncoder(input_dim=n_tf_dim,
-        #                                                   hidden_dim=n_tf_dim,
-        #                                                   projection_dim=tf_projection_dim,
-        #                                                   feedforward_hidden_dim=hidden_dim,
-        #                                                   num_layers=n_layers,
-        #                                                   num_attention_heads=n_tf_heads,
-        #                                                   dropout_prob=0,
-        #                                                   residual_dropout_prob=0,
-        #                                                   attention_dropout_prob=0)
         self.transformerBlocks : nn.ModuleList[TransformerBlock] = nn.ModuleList()
         for i in range(n_layers):
             self.transformerBlocks.append(
@@ -99,11 +89,9 @@ class ContextualizationLayer(nn.Module):
 
         # 2 transformer layers
 
-        # query_contextualized = self.stackedSelfAtt(query_embeddings, query_mask)
-        # document_contextualized = self.stackedSelfAtt(document_embeddings, document_mask)
         # transformer(p) = MutliHead(FF(p)) + FF(p)       FF: two-layer fully connected non-linear activation
         query_contextualized = query_embeddings_pos * query_mask.unsqueeze(-1)
-        document_contextualized = document_embeddings_pos * document_embeddings_pos.unsqueeze(-1)
+        document_contextualized = document_embeddings_pos * document_mask.unsqueeze(-1)
 
         # # n transformer blocks
         for transformerBlock in self.transformerBlocks:
@@ -151,7 +139,7 @@ class CrossMatchlayer(nn.Module):
         cosine_matrix_m = torch.tanh(cosine_matrix_m * query_by_doc_mask)
         # cosine_matrix_m = cosine_matrix_m * query_by_doc_mask
 
-        # todo explain why unsqueez is needed
+        # unsqueeze to ad addtional dim
         cosine_matrix_m = cosine_matrix_m.unsqueeze(-1)
 
         return cosine_matrix_m
