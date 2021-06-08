@@ -288,231 +288,234 @@ def evaluateModel(model: nn.Module, tupleLoader: PyTorchDataLoader, relevanceLab
 
 # region [Config & wandb]
 
+def main():
+    torch.manual_seed(32)
 
-torch.manual_seed(32)
+    # change paths to your data directory
+    config = {
+        "vocab_directory": "data/allen_vocab_lower_10",
+        "pre_trained_embedding": "data/glove.42B.300d.txt",
+        "model": "conv_knrm",
+        "train_data": "data/triples.train.tsv",
+        "validation_data": "data/msmarco_tuples.validation.tsv",
+        "test_data": "data/msmarco_tuples.test.tsv",
+        "qrels_data": "data/msmarco_qrels.txt",
+        "onGPU": torch.cuda.is_available(),
+        "train_word_embedding": True,
+        "n_training_epochs": 3,
+        "traning_batch_size": 128,
+        "eval_batch_size": 128,  
+        "validation_interval": 250,
+        "learning_rate": 0.001,
+        "weight_decay": 0.000000000000001,
+        "use_wandb": True,
+        "wandb_entity": "floko",
+        "wandb_log_interval": 10
 
-# change paths to your data directory
-config = {
-    "vocab_directory": "data/allen_vocab_lower_10",
-    "pre_trained_embedding": "data/glove.42B.300d.txt",
-    "model": "conv_knrm",
-    "train_data": "data/triples.train.tsv",
-    "validation_data": "data/msmarco_tuples.validation.tsv",
-    "test_data": "data/msmarco_tuples.test.tsv",
-    "qrels_data": "data/msmarco_qrels.txt",
-    "onGPU": torch.cuda.is_available(),
-    "train_word_embedding": True,
-    "n_training_epochs": 3,
-    "traning_batch_size": 128,
-    "eval_batch_size": 128,  
-    "validation_interval": 250,
-    "learning_rate": 0.001,
-    "weight_decay": 0.000000000000001,
-    "use_wandb": True,
-    "wandb_entity": "floko",
-    "wandb_log_interval": 10
+    }
 
-}
+    onGPU = config["onGPU"]
 
-onGPU = config["onGPU"]
+    use_wandb = config["use_wandb"]
+    wandb_config = {}
 
-use_wandb = config["use_wandb"]
-wandb_config = {}
-
-if use_wandb:
-    # todo refactor wandb config use
-    wandb.init(project='air-2021SS', entity=config["wandb_entity"])
-    wandb_config = wandb.config
-    wandb_config["model"] = config["model"]
-    wandb_config["validation_data"] = config["validation_data"]
-    wandb_config["test_data"] = config["test_data"]
-    wandb_config["train_data"] = config["train_data"]
-    wandb_config["learning_rate"] = config["learning_rate"]
-    wandb_config["weight_decay"] = config["weight_decay"]
-
-# endregion
-
-#
-# data loading
-#
-
-vocab = Vocabulary.from_files(config["vocab_directory"])
-tokens_embedder = Embedding(vocab=vocab,
-                            pretrained_file=config["pre_trained_embedding"],
-                            embedding_dim=300,
-                            trainable=True,
-                            padding_index=0)
-word_embedder = BasicTextFieldEmbedder({"tokens": tokens_embedder})
-
-# recommended default params for the models (but you may change them if you want)
-if config["model"] == "knrm":
-    model = KNRM(word_embedder, n_kernels=11)
-elif config["model"] == "conv_knrm":
-    #"learning_rate": 0.001 useful for conv_knrm to perform
-    model = Conv_KNRM(word_embedder, n_grams=3, n_kernels=11, conv_out_dim=128)
-elif config["model"] == "tk":
-    # "learning_rate": 0.0001 needed for tk to perform
-    model = TK(word_embedder, n_kernels=11, n_layers=2, n_tf_dim=300, n_tf_heads=10, tf_projection_dim=30)
-elif config["model"] == "fk":
-    # learning_rate" : 0.001 needed for fk to perform
-    model = FK(word_embedder, n_kernels=11, n_layers=2, n_fnet_dim=300)
-else:
-    raise ValueError("no known model configured!")
-
-if use_wandb and hasattr(model, "fill_wandb_config"):
-    model.fill_wandb_config(wandb_config)
-
-
-# todo optimizer, loss
-
-print('Model', config["model"], 'total parameters:', sum(p.numel() for p in model.parameters() if p.requires_grad))
-print('Network:', model)
-
-#
-# train
-#
-
-_triple_reader = IrTripleDatasetReader(lazy=True, max_doc_length=180, max_query_length=30)
-_triple_reader = _triple_reader.read(config["train_data"])
-_triple_reader.index_with(vocab)
-loader = PyTorchDataLoader(_triple_reader, batch_size=config["traning_batch_size"])
-
-if onGPU:
-    if hasattr(model, "moveModelToGPU"):
-        model = model.moveModelToGPU()
-    else:
-        model = model.cuda()
-
-# loss = max(0, s_nonrel - s_rel + 1) .... called marginrankingloss
-marginRankingLoss = torch.nn.MarginRankingLoss(margin=1, reduction='mean')  # .cuda(cuda_device)
-# since we always want a "big" distance between unrelevant and releveant documents we can use Ones for each pair as targetValue
-targetValues = torch.ones(config["traning_batch_size"])
-if onGPU:
-    targetValues = targetValues.cuda()
-
-# load labels
-qrels = load_qrels(config["qrels_data"])
-
-# don't train word embedder
-paramsToTrain = []
-if hasattr(model, "get_named_parameters"):
-    namedParamsIt = model.get_named_parameters()
-else:
-    namedParamsIt = model.named_parameters()
-for p_name, par in namedParamsIt:
-    if config["train_word_embedding"] == True or not "word_embeddings" in p_name:
-        paramsToTrain.append(par)
-
-optimizer = torch.optim.AdamW(paramsToTrain, lr=config["learning_rate"], weight_decay=config["weight_decay"])
-
-# early stopping
-earlyStoppingWatchter = EarlyStoppingWatcher(patience=150) \
-    .addCriteria(MaxIterationCriteria(100000)) \
-    .addCriteria(MinDeltaCriteria(0.001)) \
-    .addCriteria(MinStdCritera(min_std=0.001, window_size=40))
-
-earlyStoppingReached = False
-total_batch_count = 0
-model_path = ""
-
-if use_wandb:
-    wandb.watch(model, log='all') 
-
-for epoch in range(config["n_training_epochs"]):
-
-    if earlyStoppingReached:
-        break
-
-    # activate training mode on model
-    model.train(mode=True)
-    trainLossList = []
-
-    for i, batch in enumerate(Tqdm.tqdm(loader)):
-
-        total_batch_count += 1
-        output_score_relevant, output_score_unrelevant, targetValues = modelForwardPassOnTripleBatchData(model, batch, targetValues, onGPU)
-
-        batch_loss = marginRankingLoss(output_score_relevant, output_score_unrelevant, targetValues)
-        batch_loss.backward()
-        optimizer.step()
-        if onGPU:
-            current_loss = batch_loss.cpu().detach().numpy()
-        else:
-            current_loss = batch_loss.detach().numpy()
-        trainLossList.append(current_loss)
-        print(f"                                                                    current loss: {current_loss:.3f}")
-
-        if use_wandb and (i + 1) % config["wandb_log_interval"] == 0:
-            wandb.log({"batch_loss": current_loss, "global_step": total_batch_count})
-
-        if (i + 1) % config["validation_interval"] == 0:
-            # validate only after n_iterations
-            # ValidationSet
-            model.train(mode=False)
-            _tuple_reader = IrLabeledTupleDatasetReader(lazy=True, max_doc_length=180, max_query_length=30)
-            _tuple_reader = _tuple_reader.read(config["validation_data"])
-            _tuple_reader.index_with(vocab)
-            validation_loader = PyTorchDataLoader(_tuple_reader, batch_size=config["eval_batch_size"])
-
-            result = evaluateModel(model, validation_loader, relevanceLabels=qrels, onGPU=onGPU)
-            print(f"validationset MRR@10 : {result['MRR@10']:.3f}")
-            target_metric = 1 - result['MRR@10']
-            if earlyStoppingWatchter.watchLoss(target_metric):
-                print("early stopping criteria reached")
-                print(f"early stopping reason: {earlyStoppingWatchter.reason}")
-                earlyStoppingReached = True
-                break
-            elif i > 15 and result['MRR@10'] > 0.14 and earlyStoppingWatchter.has_no_strikes:
-                # best model --> save
-                if model_path == "":
-                    model_path = f"outdir/model_{config['model']}_{datetime.now().strftime('%d_%m_%Y %H_%M')}.pt"
-                torch.save(model.state_dict(), model_path)
-
-            model.train(mode=True)
-
-            if use_wandb:
-                wandb.log({"validiation_MRR@10": result['MRR@10'], "global_step": total_batch_count})
-
-    meanLoss = np.mean(trainLossList)
-    stdLoss = np.std(trainLossList)
-    print(f'epoch {epoch + 1}\n train loss: {meanLoss:.3f} ± {stdLoss:.3f}')
-
-    # ValidationSet
-    model.train(mode=False)
-    _tuple_reader = IrLabeledTupleDatasetReader(lazy=True, max_doc_length=180, max_query_length=30)
-    _tuple_reader = _tuple_reader.read(config["validation_data"])
-    _tuple_reader.index_with(vocab)
-    validation_loader = PyTorchDataLoader(_tuple_reader, batch_size=config["eval_batch_size"])
-
-    result = evaluateModel(model, validation_loader, relevanceLabels=qrels, onGPU=onGPU)
-    print(f"validationset MRR@10 : {result['MRR@10']:.3f}")
     if use_wandb:
-        wandb.log({"validiation_MRR@10": result['MRR@10'], "global_step": total_batch_count})
+        # todo refactor wandb config use
+        wandb.init(project='air-2021SS', entity=config["wandb_entity"])
+        wandb_config = wandb.config
+        wandb_config["model"] = config["model"]
+        wandb_config["validation_data"] = config["validation_data"]
+        wandb_config["test_data"] = config["test_data"]
+        wandb_config["train_data"] = config["train_data"]
+        wandb_config["learning_rate"] = config["learning_rate"]
+        wandb_config["weight_decay"] = config["weight_decay"]
+
+    # endregion
+
+    #
+    # data loading
+    #
+
+    vocab = Vocabulary.from_files(config["vocab_directory"])
+    tokens_embedder = Embedding(vocab=vocab,
+                                pretrained_file=config["pre_trained_embedding"],
+                                embedding_dim=300,
+                                trainable=True,
+                                padding_index=0)
+    word_embedder = BasicTextFieldEmbedder({"tokens": tokens_embedder})
+
+    # recommended default params for the models (but you may change them if you want)
+    if config["model"] == "knrm":
+        model = KNRM(word_embedder, n_kernels=11)
+    elif config["model"] == "conv_knrm":
+        #"learning_rate": 0.001 useful for conv_knrm to perform
+        model = Conv_KNRM(word_embedder, n_grams=3, n_kernels=11, conv_out_dim=128)
+    elif config["model"] == "tk":
+        # "learning_rate": 0.0001 needed for tk to perform
+        model = TK(word_embedder, n_kernels=11, n_layers=2, n_tf_dim=300, n_tf_heads=10, tf_projection_dim=30)
+    elif config["model"] == "fk":
+        # learning_rate" : 0.001 needed for fk to perform
+        model = FK(word_embedder, n_kernels=11, n_layers=2, n_fnet_dim=300)
+    else:
+        raise ValueError("no known model configured!")
+
+    if use_wandb and hasattr(model, "fill_wandb_config"):
+        model.fill_wandb_config(wandb_config)
 
 
-# region [Evaluation]
+    # todo optimizer, loss
 
-#
-# eval (duplicate for validation inside train loop - but rename "loader", since
-# otherwise it will overwrite the original train iterator, which is instantiated outside the loop)
-#
+    print('Model', config["model"], 'total parameters:', sum(p.numel() for p in model.parameters() if p.requires_grad))
+    print('Network:', model)
 
-if model_path == "":
-    torch.save(model.state_dict(), f"outdir/model_{config['model']}_{datetime.now().strftime('%d_%m_%Y %H_%M')}.pt")
-else:
-    model.load_state_dict(torch.load(model_path))
+    #
+    # train
+    #
 
-_tuple_reader = IrLabeledTupleDatasetReader(lazy=True, max_doc_length=180, max_query_length=30)
-_tuple_reader = _tuple_reader.read(config["test_data"])
-_tuple_reader.index_with(vocab)
-testdata_loader = PyTorchDataLoader(_tuple_reader, batch_size=config["eval_batch_size"])
+    _triple_reader = IrTripleDatasetReader(lazy=True, max_doc_length=180, max_query_length=30)
+    _triple_reader = _triple_reader.read(config["train_data"])
+    _triple_reader.index_with(vocab)
+    loader = PyTorchDataLoader(_triple_reader, batch_size=config["traning_batch_size"])
 
-model.train(mode=False)
+    if onGPU:
+        if hasattr(model, "moveModelToGPU"):
+            model = model.moveModelToGPU()
+        else:
+            model = model.cuda()
 
-result = evaluateModel(model, testdata_loader, relevanceLabels=qrels, onGPU=onGPU)
-print(f"testset Score MRR@10 : {result['MRR@10']:.3f}")
-if use_wandb:
-    wandb.log({"test_MRR@10": result['MRR@10'], "global_step": total_batch_count})
+    # loss = max(0, s_nonrel - s_rel + 1) .... called marginrankingloss
+    marginRankingLoss = torch.nn.MarginRankingLoss(margin=1, reduction='mean')  # .cuda(cuda_device)
+    # since we always want a "big" distance between unrelevant and releveant documents we can use Ones for each pair as targetValue
+    targetValues = torch.ones(config["traning_batch_size"])
+    if onGPU:
+        targetValues = targetValues.cuda()
+
+    # load labels
+    qrels = load_qrels(config["qrels_data"])
+
+    # don't train word embedder
+    paramsToTrain = []
+    if hasattr(model, "get_named_parameters"):
+        namedParamsIt = model.get_named_parameters()
+    else:
+        namedParamsIt = model.named_parameters()
+    for p_name, par in namedParamsIt:
+        if config["train_word_embedding"] == True or not "word_embeddings" in p_name:
+            paramsToTrain.append(par)
+
+    optimizer = torch.optim.AdamW(paramsToTrain, lr=config["learning_rate"], weight_decay=config["weight_decay"])
+
+    # early stopping
+    earlyStoppingWatchter = EarlyStoppingWatcher(patience=150) \
+        .addCriteria(MaxIterationCriteria(100000)) \
+        .addCriteria(MinDeltaCriteria(0.001)) \
+        .addCriteria(MinStdCritera(min_std=0.001, window_size=40))
+
+    earlyStoppingReached = False
+    total_batch_count = 0
+    model_path = ""
+
+    if use_wandb:
+        wandb.watch(model, log='all') 
+
+    for epoch in range(config["n_training_epochs"]):
+
+        if earlyStoppingReached:
+            break
+
+        # activate training mode on model
+        model.train(mode=True)
+        trainLossList = []
+
+        for i, batch in enumerate(Tqdm.tqdm(loader)):
+
+            total_batch_count += 1
+            output_score_relevant, output_score_unrelevant, targetValues = modelForwardPassOnTripleBatchData(model, batch, targetValues, onGPU)
+
+            batch_loss = marginRankingLoss(output_score_relevant, output_score_unrelevant, targetValues)
+            batch_loss.backward()
+            optimizer.step()
+            if onGPU:
+                current_loss = batch_loss.cpu().detach().numpy()
+            else:
+                current_loss = batch_loss.detach().numpy()
+            trainLossList.append(current_loss)
+            print(f"                                                                    current loss: {current_loss:.3f}")
+
+            if use_wandb and (i + 1) % config["wandb_log_interval"] == 0:
+                wandb.log({"batch_loss": current_loss, "global_step": total_batch_count})
+
+            if (i + 1) % config["validation_interval"] == 0:
+                # validate only after n_iterations
+                # ValidationSet
+                model.train(mode=False)
+                _tuple_reader = IrLabeledTupleDatasetReader(lazy=True, max_doc_length=180, max_query_length=30)
+                _tuple_reader = _tuple_reader.read(config["validation_data"])
+                _tuple_reader.index_with(vocab)
+                validation_loader = PyTorchDataLoader(_tuple_reader, batch_size=config["eval_batch_size"])
+
+                result = evaluateModel(model, validation_loader, relevanceLabels=qrels, onGPU=onGPU)
+                print(f"validationset MRR@10 : {result['MRR@10']:.3f}")
+                target_metric = 1 - result['MRR@10']
+                if earlyStoppingWatchter.watchLoss(target_metric):
+                    print("early stopping criteria reached")
+                    print(f"early stopping reason: {earlyStoppingWatchter.reason}")
+                    earlyStoppingReached = True
+                    break
+                elif i > 15 and result['MRR@10'] > 0.14 and earlyStoppingWatchter.has_no_strikes:
+                    # best model --> save
+                    if model_path == "":
+                        model_path = f"outdir/model_{config['model']}_{datetime.now().strftime('%d_%m_%Y %H_%M')}.pt"
+                    torch.save(model.state_dict(), model_path)
+
+                model.train(mode=True)
+
+                if use_wandb:
+                    wandb.log({"validiation_MRR@10": result['MRR@10'], "global_step": total_batch_count})
+
+        meanLoss = np.mean(trainLossList)
+        stdLoss = np.std(trainLossList)
+        print(f'epoch {epoch + 1}\n train loss: {meanLoss:.3f} ± {stdLoss:.3f}')
+
+        # ValidationSet
+        model.train(mode=False)
+        _tuple_reader = IrLabeledTupleDatasetReader(lazy=True, max_doc_length=180, max_query_length=30)
+        _tuple_reader = _tuple_reader.read(config["validation_data"])
+        _tuple_reader.index_with(vocab)
+        validation_loader = PyTorchDataLoader(_tuple_reader, batch_size=config["eval_batch_size"])
+
+        result = evaluateModel(model, validation_loader, relevanceLabels=qrels, onGPU=onGPU)
+        print(f"validationset MRR@10 : {result['MRR@10']:.3f}")
+        if use_wandb:
+            wandb.log({"validiation_MRR@10": result['MRR@10'], "global_step": total_batch_count})
+
+
+    # region [Evaluation]
+
+    #
+    # eval (duplicate for validation inside train loop - but rename "loader", since
+    # otherwise it will overwrite the original train iterator, which is instantiated outside the loop)
+    #
+
+    if model_path == "":
+        torch.save(model.state_dict(), f"outdir/model_{config['model']}_{datetime.now().strftime('%d_%m_%Y %H_%M')}.pt")
+    else:
+        model.load_state_dict(torch.load(model_path))
+
+    _tuple_reader = IrLabeledTupleDatasetReader(lazy=True, max_doc_length=180, max_query_length=30)
+    _tuple_reader = _tuple_reader.read(config["test_data"])
+    _tuple_reader.index_with(vocab)
+    testdata_loader = PyTorchDataLoader(_tuple_reader, batch_size=config["eval_batch_size"])
+
+    model.train(mode=False)
+
+    result = evaluateModel(model, testdata_loader, relevanceLabels=qrels, onGPU=onGPU)
+    print(f"testset Score MRR@10 : {result['MRR@10']:.3f}")
+    if use_wandb:
+        wandb.log({"test_MRR@10": result['MRR@10'], "global_step": total_batch_count})
 
 
 # endregion
+
+if __name__ == "__main__":
+    main()
