@@ -7,13 +7,13 @@ from torch.autograd import Variable
 from allennlp.modules.text_field_embedders import TextFieldEmbedder
 from allennlp.modules.matrix_attention.cosine_matrix_attention import CosineMatrixAttention
 from allennlp_models.rc.modules.seq2seq_encoders.multi_head_self_attention import MultiHeadSelfAttention
-from allennlp_models.rc.modules.seq2seq_encoders.stacked_self_attention import StackedSelfAttentionEncoder
 from allennlp.nn.util import add_positional_features
 from allennlp.modules.feedforward import FeedForward
 from allennlp.nn.activations import Activation
 from allennlp.modules.layer_norm import LayerNorm
 from torch.nn.modules import dropout
 from torch.types import Device
+from secondary_output_logger import SecondaryBatchOutput, SecondaryBatchOutputLogger
 
 
 class TransformerBlock(nn.Module):
@@ -57,26 +57,18 @@ class ContextualizationLayer(nn.Module):
                  n_tf_dim: int,
                  tf_projection_dim: int,
                  n_layers: int,
-                 n_tf_heads: int):
+                 n_tf_heads: int,
+                 hidden_dim: int):
         super(ContextualizationLayer, self).__init__()
 
-        self.stackedSelfAtt = StackedSelfAttentionEncoder(input_dim=n_tf_dim,
-                                                          hidden_dim=n_tf_dim,
-                                                          projection_dim=tf_projection_dim,
-                                                          feedforward_hidden_dim=100,
-                                                          num_layers=n_layers,
-                                                          num_attention_heads=n_tf_heads,
-                                                          dropout_prob=0,
-                                                          residual_dropout_prob=0,
-                                                          attention_dropout_prob=0)
-        # self.transformerBlocks : nn.ModuleList[TransformerBlock] = nn.ModuleList()
-        # for i in range(n_layers):
-        #     self.transformerBlocks.append(
-        #         TransformerBlock(input_dim= self.n_tf_dim,
-        #                          hidden_dim= 100,
-        #                          projection_dim= self.tf_projection_dim,
-        #                          n_heads = self.n_tf_heads)
-        #     )
+        self.transformerBlocks : nn.ModuleList[TransformerBlock] = nn.ModuleList()
+        for i in range(n_layers):
+            self.transformerBlocks.append(
+                TransformerBlock(input_dim= n_tf_dim,
+                                 hidden_dim= hidden_dim,
+                                 projection_dim= tf_projection_dim,
+                                 n_heads = n_tf_heads)
+            )
 
         self.mixer = nn.Parameter(torch.full([1, 1, 1], 0.5, dtype=torch.float32, requires_grad=True))
 
@@ -91,22 +83,20 @@ class ContextualizationLayer(nn.Module):
 
         # 1. positional embedding added --> p
         #query_embeddings_pos: (batch_size, query_len, embedding_dim)
-        # query_embeddings_pos = add_positional_features(query_embeddings)
+        query_embeddings_pos = add_positional_features(query_embeddings)
         # #document_embeddings_pos: (batch_size, document_len, embedding_dim)
-        # document_embeddings_pos = add_positional_features(document_embeddings)
+        document_embeddings_pos = add_positional_features(document_embeddings)
 
         # 2 transformer layers
 
-        query_contextualized = self.stackedSelfAtt(query_embeddings, query_mask)
-        document_contextualized = self.stackedSelfAtt(document_embeddings, document_mask)
         # transformer(p) = MutliHead(FF(p)) + FF(p)       FF: two-layer fully connected non-linear activation
-        # query_contextualized = query_embeddings_pos
-        # document_contextualized = document_embeddings_pos
+        query_contextualized = query_embeddings_pos * query_mask.unsqueeze(-1)
+        document_contextualized = document_embeddings_pos * document_mask.unsqueeze(-1)
 
         # # n transformer blocks
-        # for transformerBlock in self.transformerBlocks:
-        #     query_contextualized = transformerBlock(query_contextualized, query_pad_oov_mask_bool)
-        #     document_contextualized = transformerBlock(document_contextualized, document_pad_oov_mask_bool)
+        for transformerBlock in self.transformerBlocks:
+            query_contextualized = transformerBlock(query_contextualized, query_mask)
+            document_contextualized = transformerBlock(document_contextualized, document_mask)
 
         # ^t_i =t_i * alpha + context(t1:n)_i * (1- alpha) --> alpha controls the influence of contextualization --> is also learned
         query_embedded_contextualized = (self.mixer * query_embeddings) + (1 - self.mixer) * query_contextualized
@@ -125,6 +115,7 @@ class ContextualizationLayer(nn.Module):
         # for transformerBlock in self.transformerBlocks:
         #     transformerBlock = transformerBlock.cuda()
         # self.transformerBlocks = [transformerBlock]
+        self.transformerBlocks = self.transformerBlocks.cuda()
 
         return self.cuda()
 
@@ -148,7 +139,7 @@ class CrossMatchlayer(nn.Module):
         cosine_matrix_m = torch.tanh(cosine_matrix_m * query_by_doc_mask)
         # cosine_matrix_m = cosine_matrix_m * query_by_doc_mask
 
-        # todo explain why unsqueez is needed
+        # unsqueeze to ad addtional dim
         cosine_matrix_m = cosine_matrix_m.unsqueeze(-1)
 
         return cosine_matrix_m
@@ -291,7 +282,8 @@ class TK(nn.Module):
                  n_layers: int,
                  n_tf_dim: int,
                  n_tf_heads: int,
-                 tf_projection_dim: int):
+                 tf_projection_dim: int,
+                 secondary_batch_output_logger: SecondaryBatchOutputLogger = None):
 
         super(TK, self).__init__()
 
@@ -319,10 +311,11 @@ class TK(nn.Module):
         self.tf_projection_dim = tf_projection_dim
 
         self.word_embeddings = word_embeddings
-        self.contextualization = ContextualizationLayer(n_tf_dim, tf_projection_dim, n_layers, n_tf_heads)
+        self.contextualization = ContextualizationLayer(n_tf_dim, tf_projection_dim, n_layers, n_tf_heads, hidden_dim= 100)
         self.crossmatch = CrossMatchlayer()
         self.kernelpooling = KernelPoolingLayer(n_kernels)
         self.learning_to_rank = LearningToRankLayer(n_kernels)
+        self.secondary_batch_output_logger: SecondaryBatchOutputLogger = secondary_batch_output_logger
 
     def forward(self, query: Dict[str, torch.Tensor], document: Dict[str, torch.Tensor]) -> torch.Tensor:
         # pylint: disable=arguments-differ
@@ -340,9 +333,9 @@ class TK(nn.Module):
         document_pad_oov_mask = document_pad_oov_mask_bool.float()
 
         # shape: (batch, query_max,emb_dim)
-        query_embeddings = self.word_embeddings({"tokens": query})
+        query_embeddings = self.word_embeddings({"tokens": {"tokens": query["tokens"]}})
         # shape: (batch, document_max,emb_dim)
-        document_embeddings = self.word_embeddings({"tokens": document})
+        document_embeddings = self.word_embeddings({"tokens": {"tokens": document["tokens"]}})
 
         # contextualization
         query_contextualized, document_contextualized = self.contextualization(query_embeddings, document_embeddings, query_pad_oov_mask_bool, document_pad_oov_mask_bool)
@@ -362,6 +355,9 @@ class TK(nn.Module):
         s_log, s_len = self.kernelpooling(cosine_matrix_m, query_pad_oov_mask, document_pad_oov_mask, query_by_doc_mask)
         # learning to rank
         output = self.learning_to_rank(s_log, s_len)
+
+        if not self.secondary_batch_output_logger is None:
+            self.secondary_batch_output_logger.log(secondary_batch_output=SecondaryBatchOutput(score=output, per_kernel=s_log, query_embeddings=query_embeddings, query_embeddings_oov_mask=query_pad_oov_mask, cosine_matrix=cosine_matrix_m, query_id=query["id"], doc_id=document["id"]))
 
         return output
 
