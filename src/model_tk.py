@@ -13,6 +13,7 @@ from allennlp.nn.activations import Activation
 from allennlp.modules.layer_norm import LayerNorm
 from torch.nn.modules import dropout
 from torch.types import Device
+from secondary_output_logger import SecondaryBatchOutput, SecondaryBatchOutputLogger
 
 
 class TransformerBlock(nn.Module):
@@ -281,7 +282,8 @@ class TK(nn.Module):
                  n_layers: int,
                  n_tf_dim: int,
                  n_tf_heads: int,
-                 tf_projection_dim: int):
+                 tf_projection_dim: int,
+                 secondary_batch_output_logger: SecondaryBatchOutputLogger = None):
 
         super(TK, self).__init__()
 
@@ -313,6 +315,7 @@ class TK(nn.Module):
         self.crossmatch = CrossMatchlayer()
         self.kernelpooling = KernelPoolingLayer(n_kernels)
         self.learning_to_rank = LearningToRankLayer(n_kernels)
+        self.secondary_batch_output_logger: SecondaryBatchOutputLogger = secondary_batch_output_logger
 
     def forward(self, query: Dict[str, torch.Tensor], document: Dict[str, torch.Tensor]) -> torch.Tensor:
         # pylint: disable=arguments-differ
@@ -330,9 +333,9 @@ class TK(nn.Module):
         document_pad_oov_mask = document_pad_oov_mask_bool.float()
 
         # shape: (batch, query_max,emb_dim)
-        query_embeddings = self.word_embeddings({"tokens": query})
+        query_embeddings = self.word_embeddings({"tokens": {"tokens": query["tokens"]}})
         # shape: (batch, document_max,emb_dim)
-        document_embeddings = self.word_embeddings({"tokens": document})
+        document_embeddings = self.word_embeddings({"tokens": {"tokens": document["tokens"]}})
 
         # contextualization
         query_contextualized, document_contextualized = self.contextualization(query_embeddings, document_embeddings, query_pad_oov_mask_bool, document_pad_oov_mask_bool)
@@ -352,6 +355,9 @@ class TK(nn.Module):
         s_log, s_len = self.kernelpooling(cosine_matrix_m, query_pad_oov_mask, document_pad_oov_mask, query_by_doc_mask)
         # learning to rank
         output = self.learning_to_rank(s_log, s_len)
+
+        if not self.secondary_batch_output_logger is None:
+            self.secondary_batch_output_logger.log(secondary_batch_output=SecondaryBatchOutput(score=output, per_kernel=s_log, query_embeddings=query_embeddings, query_embeddings_oov_mask=query_pad_oov_mask, cosine_matrix=cosine_matrix_m, query_id=query["id"], doc_id=document["id"]))
 
         return output
 
