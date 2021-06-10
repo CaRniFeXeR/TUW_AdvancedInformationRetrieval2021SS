@@ -320,10 +320,12 @@ class FK(nn.Module):
         document_pad_oov_mask_bool = document["tokens"] > 0
         document_pad_oov_mask = document_pad_oov_mask_bool.float()
 
+
+
         # shape: (batch, query_max,emb_dim)
-        query_embeddings = self.word_embeddings({"tokens": query})
+        query_embeddings = self.word_embeddings({"tokens": {"tokens": query["tokens"]}})
         # shape: (batch, document_max,emb_dim)
-        document_embeddings = self.word_embeddings({"tokens": document})
+        document_embeddings = self.word_embeddings({"tokens": {"tokens": document["tokens"]}})
 
         # contextualization
         query_contextualized, document_contextualized = self.contextualization(query_embeddings, document_embeddings, query_pad_oov_mask_bool, document_pad_oov_mask_bool)
@@ -345,7 +347,7 @@ class FK(nn.Module):
         output = self.learning_to_rank(s_log, s_len)
 
         if not self.secondary_batch_output_logger is None:
-            self.secondary_batch_output_logger.log(secondary_batch_output=SecondaryBatchOutput(score=output, per_kernel=s_log, query_embeddings=query_embeddings, query_embeddings_oov_mask=query_pad_oov_mask, cosine_matrix=cosine_matrix_m))
+            self.secondary_batch_output_logger.log(secondary_batch_output=SecondaryBatchOutput(score=output, per_kernel=s_log, query_embeddings=query_embeddings, query_embeddings_oov_mask=query_pad_oov_mask, cosine_matrix=cosine_matrix_m, query_id=query["id"], doc_id=document["id"]))
 
         return output
 

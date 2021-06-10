@@ -9,11 +9,13 @@ from datetime import datetime
 ROOT_PATH: Path = Path('logs/')
 
 class SecondaryBatchOutput():
-    def __init__(self, score: torch.Tensor, per_kernel: torch.Tensor, query_embeddings: torch.Tensor, query_embeddings_oov_mask: torch.Tensor, cosine_matrix: torch.Tensor):
+    def __init__(self, score: torch.Tensor, per_kernel: torch.Tensor, query_embeddings: torch.Tensor, query_embeddings_oov_mask: torch.Tensor, cosine_matrix: torch.Tensor, query_id: List[str], doc_id: List[str]):
         self.__score: torch.Tensor = score
         self.__per_kernel: torch.Tensor = per_kernel
         self.__query_mean_vector: torch.Tensor = (query_embeddings.sum(dim=1) / query_embeddings_oov_mask.sum(dim=1).unsqueeze(-1))
         self.__cosine_matrix: torch.Tensor = cosine_matrix
+        self.__query_id: List[str] = query_id
+        self.__doc_id: List[str] = doc_id
 
     @property
     def score(self) -> torch.Tensor:
@@ -30,6 +32,14 @@ class SecondaryBatchOutput():
     @property
     def cosine_matrix(self) -> torch.Tensor:
         return self.__cosine_matrix
+
+    @property
+    def query_id(self) -> List[str]:
+        return self.__query_id
+
+    @property
+    def doc_id(self) -> List[str]:
+        return self.__doc_id
 
 class SecondaryBatchOutputLogger(ABC):
     @abstractmethod
@@ -52,6 +62,7 @@ class SecondaryBatchOutputFileLogger(SecondaryBatchOutputLogger):
         self.__config: SecondaryBatchOutputFileLoggerConfig = config
 
         self.__create_folder_structure()
+        self.__secondary_output: Dict[str, Any] = {}
         self.__log_file: IO[Any] = open(self.__file_path, "wb")
 
     def __enter__(self):
@@ -80,4 +91,17 @@ class SecondaryBatchOutputFileLogger(SecondaryBatchOutputLogger):
         self.__store_path.absolute().mkdir(parents=True, exist_ok=True)
         
     def log(self, secondary_batch_output: SecondaryBatchOutput):
-        pass
+        for sample_index, query_id in enumerate(secondary_batch_output.query_id):
+            doc_id: str = secondary_batch_output.doc_id[sample_index]
+
+            if not query_id in self.__secondary_output.keys():
+                self.__secondary_output[query_id] = {}
+
+            if not doc_id in self.__secondary_output[query_id].keys():
+                self.__secondary_output[query_id][doc_id] = {}
+                self.__secondary_output[query_id][doc_id]["score"] = secondary_batch_output.score.cpu()[sample_index].data.numpy()
+                self.__secondary_output[query_id][doc_id]["per_kernel"] = secondary_batch_output.per_kernel.cpu()[sample_index].data.numpy()
+                self.__secondary_output[query_id][doc_id]["query_mean_vector"] = secondary_batch_output.query_mean_vector.cpu()[sample_index].data.numpy()
+                self.__secondary_output[query_id][doc_id]["cosine_matrix_masked"] = secondary_batch_output.cosine_matrix.cpu()[sample_index].data.numpy()
+        
+        numpy.savez_compressed(self.__log_file, qd_data=self.__secondary_output)

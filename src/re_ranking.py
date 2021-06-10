@@ -243,6 +243,8 @@ def modelForwardPassOnTripleBatchData(model: nn.Module, batch: dict, targetValue
 def modelForwardPassOnTupleBatchData(model: nn.Module, batch: dict, onGPU: bool):
     # batch["query_tokens"] --> query tokens
     # batch["doc_tokens"] --> document tokens
+    batch["query_tokens"]["tokens"]["id"] = batch["query_id"]
+    batch["doc_tokens"]["tokens"]["id"] = batch["doc_id"]
 
     if onGPU:
         batch["query_tokens"]["tokens"]["tokens"] = batch["query_tokens"]["tokens"]["tokens"].to(device="cuda")
