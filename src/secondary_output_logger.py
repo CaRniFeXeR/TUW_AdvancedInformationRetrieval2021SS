@@ -3,7 +3,7 @@ import torch
 import numpy
 from pathlib import Path
 import copy
-from typing import TypeVar, Generic, List, Dict, Any
+from typing import IO, TypeVar, Generic, List, Dict, Any
 from datetime import datetime
 
 ROOT_PATH: Path = Path('logs/')
