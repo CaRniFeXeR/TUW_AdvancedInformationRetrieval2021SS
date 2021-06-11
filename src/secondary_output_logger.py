@@ -23,11 +23,13 @@ class TKModelData(ModelData):
         return {"dense_weight": self.dense_weight, "dense_mean_weight": self.dense_mean_weight, "dense_comb_weight": self.dense_comb_weight}
 
 class FKModelData(ModelData):
-    def __init__(self):
-        pass
+    def __init__(self, dense_weight, dense_mean_weight, dense_comb_weight):
+        self.dense_weight = dense_weight
+        self.dense_mean_weight = dense_mean_weight
+        self.dense_comb_weight = dense_comb_weight
 
     def to_dict(self) -> Dict[str, numpy.ndarray]:
-        return {}
+        return {"dense_weight": self.dense_weight, "dense_mean_weight": self.dense_mean_weight, "dense_comb_weight": self.dense_comb_weight}
 
 class SecondaryBatchOutput():
     def __init__(self, score: torch.Tensor, per_kernel: torch.Tensor, query_embeddings: torch.Tensor, query_embeddings_oov_mask: torch.Tensor, cosine_matrix: torch.Tensor, query_id: List[str], doc_id: List[str]):

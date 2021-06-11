@@ -48,7 +48,7 @@ def main():
         elif config["model"] == "fk":
             # learning_rate" : 0.001 needed for fk to perform
             model = FK(word_embedder, n_kernels=11, n_layers=2, n_fnet_dim=300, secondary_batch_output_logger=secondary_output_logger)
-            secondary_output_logger.model_data = FKModelData()
+            secondary_output_logger.model_data = FKModelData(dense_weight=None, dense_mean_weight=None, dense_comb_weight=None)
         else:
             raise ValueError("no known model configured!")
 
