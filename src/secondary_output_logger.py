@@ -32,9 +32,10 @@ class FKModelData(ModelData):
         return {"dense_weight": self.dense_weight.data.cpu().numpy(), "dense_mean_weight": self.dense_mean_weight.data.cpu().numpy(), "dense_comb_weight": self.dense_comb_weight.data.cpu().numpy()}
 
 class SecondaryBatchOutput():
-    def __init__(self, score: torch.Tensor, per_kernel: torch.Tensor, cosine_matrix: torch.Tensor, query_id: List[str], doc_id: List[str]):
+    def __init__(self, score: torch.Tensor, per_kernel: torch.Tensor, per_kernel_mean: torch.Tensor, cosine_matrix: torch.Tensor, query_id: List[str], doc_id: List[str]):
         self.__score: torch.Tensor = score
         self.__per_kernel: torch.Tensor = per_kernel
+        self.__per_kernel_mean: torch.Tensor = per_kernel_mean
         self.__cosine_matrix: torch.Tensor = cosine_matrix
         self.__query_id: List[str] = query_id
         self.__doc_id: List[str] = doc_id
@@ -46,6 +47,10 @@ class SecondaryBatchOutput():
     @property
     def per_kernel(self) -> torch.Tensor:
         return self.__per_kernel
+
+    @property
+    def per_kernel_mean(self) -> torch.Tensor:
+        return self.__per_kernel_mean
 
     @property
     def cosine_matrix(self) -> torch.Tensor:
@@ -72,6 +77,7 @@ class SecondaryBatchOutput():
                 __secondary_output[query_id][doc_id] = {}
                 __secondary_output[query_id][doc_id]["score"] = self.score.cpu()[sample_index].data.numpy()
                 __secondary_output[query_id][doc_id]["per_kernel"] = self.per_kernel.cpu()[sample_index].data.numpy()
+                __secondary_output[query_id][doc_id]["per_kernel_mean"] = self.per_kernel_mean.cpu()[sample_index].data.numpy()
                 __secondary_output[query_id][doc_id]["cosine_matrix_masked"] = self.cosine_matrix.cpu()[sample_index].data.numpy()
 
         return __secondary_output
