@@ -14,26 +14,27 @@ class ModelData(ABC):
         pass
 
 class TKModelData(ModelData):
-    def __init__(self, dense_weight, dense_mean_weight, dense_comb_weight):
-        self.dense_weight = dense_weight
-        self.dense_mean_weight = dense_mean_weight
-        self.dense_comb_weight = dense_comb_weight
+    def __init__(self, dense_weight: torch.Tensor, dense_mean_weight: torch.Tensor, dense_comb_weight: torch.Tensor):
+        self.dense_weight: torch.Tensor = dense_weight
+        self.dense_mean_weight: torch.Tensor = dense_mean_weight
+        self.dense_comb_weight: torch.Tensor = dense_comb_weight
 
     def to_dict(self) -> Dict[str, numpy.ndarray]:
-        return {"dense_weight": self.dense_weight, "dense_mean_weight": self.dense_mean_weight, "dense_comb_weight": self.dense_comb_weight}
+        return {"dense_weight": self.dense_weight.data.cpu().numpy(), "dense_mean_weight": self.dense_mean_weight.data.cpu().numpy(), "dense_comb_weight": self.dense_comb_weight.data.cpu().numpy()}
 
 class FKModelData(ModelData):
-    def __init__(self):
-        pass
+    def __init__(self, dense_weight: torch.Tensor, dense_mean_weight: torch.Tensor, dense_comb_weight: torch.Tensor):
+        self.dense_weight: torch.Tensor = dense_weight
+        self.dense_mean_weight: torch.Tensor = dense_mean_weight
+        self.dense_comb_weight: torch.Tensor = dense_comb_weight
 
     def to_dict(self) -> Dict[str, numpy.ndarray]:
-        return {}
+        return {"dense_weight": self.dense_weight.data.cpu().numpy(), "dense_mean_weight": self.dense_mean_weight.data.cpu().numpy(), "dense_comb_weight": self.dense_comb_weight.data.cpu().numpy()}
 
 class SecondaryBatchOutput():
-    def __init__(self, score: torch.Tensor, per_kernel: torch.Tensor, query_embeddings: torch.Tensor, query_embeddings_oov_mask: torch.Tensor, cosine_matrix: torch.Tensor, query_id: List[str], doc_id: List[str]):
+    def __init__(self, score: torch.Tensor, per_kernel: torch.Tensor, cosine_matrix: torch.Tensor, query_id: List[str], doc_id: List[str]):
         self.__score: torch.Tensor = score
         self.__per_kernel: torch.Tensor = per_kernel
-        self.__query_mean_vector: torch.Tensor = (query_embeddings.sum(dim=1) / query_embeddings_oov_mask.sum(dim=1).unsqueeze(-1))
         self.__cosine_matrix: torch.Tensor = cosine_matrix
         self.__query_id: List[str] = query_id
         self.__doc_id: List[str] = doc_id
@@ -45,10 +46,6 @@ class SecondaryBatchOutput():
     @property
     def per_kernel(self) -> torch.Tensor:
         return self.__per_kernel
-
-    @property
-    def query_mean_vector(self) -> torch.Tensor:
-        return self.__query_mean_vector
 
     @property
     def cosine_matrix(self) -> torch.Tensor:
@@ -75,7 +72,6 @@ class SecondaryBatchOutput():
                 __secondary_output[query_id][doc_id] = {}
                 __secondary_output[query_id][doc_id]["score"] = self.score.cpu()[sample_index].data.numpy()
                 __secondary_output[query_id][doc_id]["per_kernel"] = self.per_kernel.cpu()[sample_index].data.numpy()
-                __secondary_output[query_id][doc_id]["query_mean_vector"] = self.query_mean_vector.cpu()[sample_index].data.numpy()
                 __secondary_output[query_id][doc_id]["cosine_matrix_masked"] = self.cosine_matrix.cpu()[sample_index].data.numpy()
 
         return __secondary_output
