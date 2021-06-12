@@ -10,8 +10,9 @@ from allennlp.data.vocabulary import Vocabulary
 from allennlp.data.dataloader import PyTorchDataLoader
 from re_ranking import evaluateModel
 from core_metrics import calculate_metrics_plain, load_qrels, unrolled_to_ranked_result
-from secondary_output_logger import SecondaryBatchOutput, SecondaryBatchOutputFileLogger, SecondaryBatchOutputFileLoggerConfig, SecondaryBatchOutputLogger
+from secondary_output_logger import SecondaryBatchOutput, SecondaryBatchOutputFileLogger, SecondaryBatchOutputFileLoggerConfig, SecondaryBatchOutputLogger, TKModelData, FKModelData
 from pathlib import Path
+
 
 def main():
     config = {
@@ -23,12 +24,13 @@ def main():
         "test_data": "data/msmarco_tuples.test.tsv",
         "qrels_data": "data/msmarco_qrels.txt",
         "onGPU": torch.cuda.is_available(),
-        "eval_batch_size": 128,  
+        "eval_batch_size": 128,
         "validation_interval": 250,
         "learning_rate": 0.001,
         "weight_decay": 0.000000000000001,
     }
 
+    onGPU = config["onGPU"]
     vocab = Vocabulary.from_files(config["vocab_directory"])
     tokens_embedder = Embedding(vocab=vocab,
                                 pretrained_file=config["pre_trained_embedding"],
@@ -44,15 +46,22 @@ def main():
         if config["model"] == "tk":
             # "learning_rate": 0.0001 needed for tk to perform
             model = TK(word_embedder, n_kernels=11, n_layers=2, n_tf_dim=300, n_tf_heads=10, tf_projection_dim=30, secondary_batch_output_logger=secondary_output_logger)
+            secondary_output_logger.model_data = TKModelData(dense_weight=model.learning_to_rank.linear_Slog.weight, dense_mean_weight=model.learning_to_rank.linear_Slen.weight, dense_comb_weight=model.learning_to_rank.dense_comb.weight)
         elif config["model"] == "fk":
             # learning_rate" : 0.001 needed for fk to perform
             model = FK(word_embedder, n_kernels=11, n_layers=2, n_fnet_dim=300, secondary_batch_output_logger=secondary_output_logger)
+            secondary_output_logger.model_data = FKModelData(dense_weight=model.learning_to_rank.linear_Slog.weight, dense_mean_weight=model.learning_to_rank.linear_Slen.weight, dense_comb_weight=model.learning_to_rank.dense_comb.weight)
         else:
             raise ValueError("no known model configured!")
 
-        model.load_state_dict(torch.load(f"outdir/model_{config['model']}_best.pt", map_location=torch.device('cpu')))
+        if not onGPU:
+            model.load_state_dict(torch.load(f"outdir/model_{config['model']}_best.pt", map_location=torch.device('cpu')))
+        else:
+            model.load_state_dict(torch.load(f"outdir/model_{config['model']}_best.pt"))
+            model.moveModelToGPU()
+
         qrels = load_qrels(config["qrels_data"])
-        
+
         _tuple_reader = IrLabeledTupleDatasetReader(lazy=True, max_doc_length=180, max_query_length=30)
         _tuple_reader = _tuple_reader.read(config["test_data"])
         _tuple_reader.index_with(vocab)
@@ -61,6 +70,7 @@ def main():
         model.train(mode=False)
 
         result = evaluateModel(model, testdata_loader, relevanceLabels=qrels, onGPU=config["onGPU"])
+
 
 if __name__ == "__main__":
     main()

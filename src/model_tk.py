@@ -357,7 +357,7 @@ class TK(nn.Module):
         output = self.learning_to_rank(s_log, s_len)
 
         if not self.secondary_batch_output_logger is None:
-            self.secondary_batch_output_logger.log(secondary_batch_output=SecondaryBatchOutput(score=output, per_kernel=s_log, query_embeddings=query_embeddings, query_embeddings_oov_mask=query_pad_oov_mask, cosine_matrix=cosine_matrix_m, query_id=query["id"], doc_id=document["id"]))
+            self.secondary_batch_output_logger.log(secondary_batch_output=SecondaryBatchOutput(score=output, per_kernel=s_log, per_kernel_mean=s_len, cosine_matrix=cosine_matrix_m.squeeze(-1), query_id=query["id"], doc_id=document["id"]))
 
         return output
 
