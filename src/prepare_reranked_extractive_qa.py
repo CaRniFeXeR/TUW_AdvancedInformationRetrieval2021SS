@@ -1,4 +1,5 @@
 from collections import namedtuple, defaultdict
+from datetime import datetime
 from typing import List, Dict, Tuple
 
 import torch
@@ -12,14 +13,17 @@ from src.core_metrics import unrolled_to_ranked_result
 from src.data_loading import IrLabeledTupleDatasetReader
 from src.model_conv_knrm import Conv_KNRM
 from src.model_knrm import KNRM
+from src.model_tk import TK
 
-def prepare_top1_documents():
-    onGPU = False
+
+def prepare_top1_documents(output_file:str, top:int = 1):
+    onGPU = True
     vocab = Vocabulary.from_files("data/allen_vocab_lower_10")
     _tuple_reader = IrLabeledTupleDatasetReader(lazy=True, max_doc_length=180, max_query_length=30)
     _tuple_reader = _tuple_reader.read("data/msmarco_tuples.test.tsv")
+    # _tuple_reader = _tuple_reader.read("data/only_dinosaur.txt")
     _tuple_reader.index_with(vocab)
-    testdata_loader = PyTorchDataLoader(_tuple_reader, batch_size=512)
+    testdata_loader = PyTorchDataLoader(_tuple_reader, batch_size=128)
 
     tokens_embedder = Embedding(vocab=vocab,
                                 pretrained_file="data/glove.42B.300d.txt",
@@ -27,8 +31,8 @@ def prepare_top1_documents():
                                 trainable=True,
                                 padding_index=0)
     word_embedder = BasicTextFieldEmbedder({"tokens": tokens_embedder})
-    model = Conv_KNRM(word_embedder, n_grams=3, n_kernels=11, conv_out_dim=128)
-    model_path = "./outdir/model_conv_knrm_06_06_2021 23_05.pt"
+    model = TK(word_embedder, n_kernels=11, n_layers=2, n_tf_dim=300, n_tf_heads=10, tf_projection_dim=30)
+    model_path = "./data/models/model_tk_08_06_2021 20_04.pt"
     model.load_state_dict(torch.load(model_path))
 
     if onGPU:
@@ -56,27 +60,35 @@ def prepare_top1_documents():
     resultDict: Dict[int, List[Tuple[int, float]]] = {}
 
     for batch in Tqdm.tqdm(testdata_loader):
-        resultDict = evaluateModelOnBatch(model, batch, resultDict, False)
+        resultDict = evaluateModelOnBatch(model, batch, resultDict, onGPU)
 
     ranked_result = unrolled_to_ranked_result(resultDict)
 
-    with open('./outdir/ms_marco_top1_docs_per_query.txt', 'w') as fp:
+    with open(output_file, 'w') as fp:
         for qid, docs in ranked_result.items():
-            fp.write(f'{qid}\t{docs[0]}\n')
+            for t in range(top):
+                fp.write(f'{qid}\t{docs[t]}\n')
 
 def read_file(path: str, sep='\t'):
     with open(path, 'r', encoding="utf8") as fp:
         return [x.strip().split(sep) for x in fp.readlines()]
 
 
-def prepare_output_file():
+def prepare_output_file(input_file:str, output_file:str):
     answers = {(x[0], x[1]):(x[4:]) for x in read_file('./data/fira.qrels.qa-answers.tsv')}
-    ms_marco_tuples_with_text= {(x[0], x[1]):(x[2], x[3]) for x in read_file('./data/msmarco_tuples.test.tsv')}
-    ms_marco_top1_docs_per_query = {(x[0],x[1]) for x in read_file('./outdir/ms_marco_top1_docs_per_query.txt')}
+    answers_queries = {x[0] for x in read_file('./data/fira.qrels.qa-answers.tsv')}
+    qrels = {(x[0],x[2]) for x in read_file('./data/fira.qrels.retrieval.tsv', sep=' ')}
 
-    with open('./outdir/ms_marco_top1_docs_per_query_with_answers.tsv', 'w', encoding='utf8') as fp:
+    ms_marco_tuples_with_text= {(x[0], x[1]):(x[2], x[3]) for x in read_file('./data/msmarco_tuples.test.tsv')}
+    ms_marco_top1_docs_per_query = {(x[0],x[1]) for x in read_file(input_file)}
+    with open(output_file, 'w', encoding='utf8') as fp:
         empty = 0
+        skipped = 0
         for q,d in ms_marco_top1_docs_per_query:
+
+            if q not in answers_queries:#or q not in qrel_queries:
+                skipped += 1
+                continue
             query_txt, document_txt =  ms_marco_tuples_with_text[(q,d)]
 
             answer = []
@@ -87,12 +99,15 @@ def prepare_output_file():
                 empty += 1
             answer_str = "\t".join(answer)
             fp.write(f'{q}\t{d}\t0\t{query_txt}\t{document_txt}\t{answer_str}\n')
-        print(f'No appropriate reference answer found for {empty} queries')
+        print(f'No appropriate reference answer found for {empty} queries, skipped = {skipped}')
 
 
 if __name__ == '__main__':
-    prepare_top1_documents()
-    prepare_output_file()
+    prepared_file = f'./outdir/ms_marco_top1_{datetime.now().strftime("%d_%m_%Y %H_%M")}.tsv'
+    output_file = f'./outdir/ms_marco_top1_query_and_doc_{datetime.now().strftime("%d_%m_%Y %H_%M")}.tsv'
+
+    prepare_top1_documents(prepared_file, top=1)
+    prepare_output_file(prepared_file, output_file)
 
 # ms_marco_tuples= {(x[0], x[1]) for x in read_file('./data/msmarco_tuples.test.tsv')}
 #

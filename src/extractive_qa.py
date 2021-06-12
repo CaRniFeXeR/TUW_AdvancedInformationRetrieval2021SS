@@ -1,5 +1,6 @@
 
 import os
+import pickle
 from types import FunctionType
 from typing import Callable, List
 from numpy import average
@@ -54,6 +55,8 @@ class QAScore:
         '''
 
         scores = self.scores
+        if len(scores) == 0:
+            return 0
         return max(scores)
 
     def __str__(self) -> str:
@@ -111,13 +114,16 @@ class QADataLoader:
         self.filepath = filepath
 
     def load(self) -> List[QAData]:
-
+        # idx = 0
         result = []
         print(f"loading qa data from: '{self.filepath}'... ")
         with open(self.filepath, "r", encoding="utf8") as file:
             for line in file:
+                # idx+=1
+                # if idx >= 10:
+                #     break
                 try:
-                    tab_sep_line = line.split("\t")  # load data by tab seperated
+                    tab_sep_line = line.strip().split("\t")  # load data by tab seperated
                     tab_sep_line = list(filter(None, tab_sep_line))  # remove "empty" columns
 
                     if not len(tab_sep_line) >= 5:
@@ -141,33 +147,40 @@ class QADataLoader:
 
 def evaluate_results(evaluations: List[QAEvaluation]):
 
-    scores = []
-    for evalulation in evaluations:
-        scores.append(evalulation.score)
+    scores_f1 = []
+    scores_exact = []
+    for evaluation in evaluations:
+        scores_f1.append(evaluation.f1.max_score)
+        scores_exact.append(evaluation.exact.max_score)
 
-    print(f"evaluted : '{len(scores)}' avg: result: '{average(scores):.3f}'")
+    print(f"evaluted : '{len(scores_f1)}' avg: result: '{average(scores_f1):.3f}'")
+    print(f"evaluted : '{len(scores_exact)}' avg: result: '{average(scores_exact):.3f}'")
 
 
 def runModel(config: dict):
 
     qa_loader = QADataLoader(config["fira_data_path"])
+    # qa_loader = QADataLoader(config["fire_reranked_path"])
     model_name = config["model_name"]
     qa_dataset = qa_loader.load()
 
-    nlp = pipeline('question-answering', model=model_name, tokenizer=model_name)
+    nlp = pipeline('question-answering', model=model_name, tokenizer=model_name, device=0)
 
     qa_evaluations = []
 
     for i, qa_data in enumerate(qa_dataset):
-        res = nlp(qa_data.qa_input.__dict__)
-        qa_prediction = QAPredicton(**res)
+            print(f'iteration {i}')
+            res = nlp(qa_data.qa_input.__dict__, max_seq_len=180, max_question_len=30)
+            qa_prediction = QAPredicton(**res)
 
-        qa_evaluation = QAEvaluation(qa_data.qa_input, qa_prediction, qa_data.answers)
-        qa_evaluations.append(qa_evaluation)
+            qa_evaluation = QAEvaluation(qa_data.qa_input, qa_prediction, qa_data.answers)
+            qa_evaluations.append(qa_evaluation)
 
-        if i == 42 or i % 100 == 0:
-            print(qa_evaluation)
+            if i == 42 or i % 100 == 0:
+                print(qa_evaluation)
 
+    with open("res.pickle","wb") as fp:
+        pickle.dump(qa_evaluations, fp)
     evaluate_results(qa_evaluations)
 
 
@@ -175,7 +188,8 @@ if __name__ == '__main__':
 
     config = {
         "fira_data_path": "data/fira.qrels.qa-tuples.tsv",
-        "model_name": "distilbert-base-uncased-distilled-squad"  # deepset/roberta-base-squad2
+        "model_name": "distilbert-base-uncased-distilled-squad",  # deepset/roberta-base-squad2
+        "fire_reranked_path":"outdir/ms_marco_top1_query_and_doc_10_06_2021 22_38.tsv"
     }
 
     runModel(config)
