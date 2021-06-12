@@ -4,6 +4,17 @@ Student 1 Matrikelnummer + Name:
 Student 2 Matrikelnummer + Name:
 Student 3 Matrikelnummer + Name:
 
+
+* Task 3 Neural IR-Explorer Files erstellen --> Christopher
+* Task 3 files erstellen ausführen --> Florian
+* Task 2 Etractive QA, ausführen und im Report beschreiben --> Thomas
+* Task 1 Testssetscores berechnen --> Thomas
+* Task 1 Conv-Model findings --> Christopher
+* Task 1 TK-Model findings --> Florian
+* Task 1 KNRM findings --> Thomas
+* Task 3 Neural IR-Explorer mit eigen files starten --> Florian
+* Task 3 find difference in model tk and model fk results 
+
 # Report
 
 ## Part 1
