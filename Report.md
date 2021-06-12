@@ -68,3 +68,18 @@ Despite this interesting results one has to question if more efficient models th
     - generate secondary results for tk and fk model
     - explore with the ir-explorer and search for interesting differences (e.g.: where fk model failed to watch for context)
 
+For Part 3 we were interested in analyzing the differences between TK and FK model. In order to compare divergent predictions of both models we reused the [Neural IR-Explorer](https://github.com/sebastian-hofstaetter/neural-ir-explorer). In the following list we describe the steps we have taken to execute this plan:
+
+* analyzed code of neural-ir-explorer and the reuse possibility 
+* requested additional files needed by neural-ir-explorer from Mr. Hoftsätter
+* implemented secondary data logging for the re-ranking models
+* install, configure, build & run neural-ir-explorer
+* filter neural-ir-explorer clusters to only view the queries that are actual present in the secondary output
+
+Further our semi-automated evaluation process looks as followed:
+* generate secondary output for both models
+* filter output for divergent results of both models (max delta between scores) & save them as filtered secondary output
+* visualize filtered secondary output of both models in the Neural IR-Explorer
+* manually compare and interpret differences of specific queries
+
+
