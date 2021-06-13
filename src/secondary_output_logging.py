@@ -24,7 +24,7 @@ def main():
         "test_data": "data/msmarco_tuples.test.tsv",
         "qrels_data": "data/msmarco_qrels.txt",
         "onGPU": torch.cuda.is_available(),
-        "eval_batch_size": 128,
+        "eval_batch_size": 256,
         "validation_interval": 250,
         "learning_rate": 0.001,
         "weight_decay": 0.000000000000001,

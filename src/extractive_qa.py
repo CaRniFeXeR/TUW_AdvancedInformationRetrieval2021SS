@@ -4,6 +4,7 @@ import pickle
 from types import FunctionType
 from typing import Callable, List
 from numpy import average
+import torch
 from transformers import AutoModelForQuestionAnswering, AutoTokenizer, pipeline
 
 from core_metrics import compute_exact, compute_f1
@@ -163,7 +164,7 @@ def runModel(config: dict):
     # qa_loader = QADataLoader(config["fire_reranked_path"])
     model_name = config["model_name"]
     qa_dataset = qa_loader.load()
-
+    print(f"using device: {torch.cuda.get_device_name(0)}")
     nlp = pipeline('question-answering', model=model_name, tokenizer=model_name, device=0)
 
     qa_evaluations = []
