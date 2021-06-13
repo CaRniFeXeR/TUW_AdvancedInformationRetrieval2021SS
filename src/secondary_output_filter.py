@@ -16,8 +16,8 @@ from pathlib import Path
 
 def main():
     config = {
-        "secondary_output_file_1": "logs/fk_logger/log_11_06_2021 11_53.npz",
-        "secondary_output_file_2": "logs/fk_logger/log_11_06_2021 11_53.npz",
+        "secondary_output_file_1": "logs/fk_logger/log_13_06_2021 17_09.npz",
+        "secondary_output_file_2": "logs/tk_logger/log_13_06_2021 17_38.npz",
         "out_dir": "filtered_logs",
         "top_n": 20
     }
