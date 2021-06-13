@@ -63,46 +63,67 @@ Despite this interesting results one has to question if more efficient models th
 
 ## Part 3
 
-    todo visualize tk model vs. fk model in neural ir-explorer and tell a story
-    - get neural ir-explorer running
-    - generate secondary results for tk and fk model
-    - explore with the ir-explorer and search for interesting differences (e.g.: where fk model failed to watch for context)
-
-For Part 3 we were interested in analyzing the differences between TK and FK model. In order to compare divergent predictions of both models we reused the [Neural IR-Explorer](https://github.com/sebastian-hofstaetter/neural-ir-explorer). In the following list we describe the steps we have taken to execute this plan:
+For Part 3 we were interested in analyzing the differences between TK and FK model. How does the Fourier-Transformation token mixing affect the output and similarities scores compared to self attention token mixing. Are there spotable differences at all? 
+### Setup
+In order to compare and visualize divergent predictions of both models we reused the [Neural IR-Explorer](https://github.com/sebastian-hofstaetter/neural-ir-explorer). In the following list we describe the steps we have taken to execute this plan:
 
 * analyzed code of neural-ir-explorer and the reuse possibility 
-* requested additional files needed by neural-ir-explorer from Mr. Hoftsätter
+* requested additional files needed by neural-ir-explorer from Mr. Hoftsätter (thank you!)
 * implemented secondary data logging for the re-ranking models
-* install, configure, build & run neural-ir-explorer
-* filter neural-ir-explorer clusters to only view the queries that are actual present in the secondary output
+* installed, configured, built & run neural-ir-explorer
+* implemented python script to select query-doc pairs with the greatest difference in score of both models
+* adapted neural-ir-explorer to view only the queries in the clusters that are actual present in the secondary output
+* adapted neural-ir-explorer to enable side-by-side document comparison between different runs
 
 Further our semi-automated evaluation process looks as followed:
-* generate secondary output for both models
-* filter output for divergent results of both models (max delta between scores) & save them as filtered secondary output
-* visualize filtered secondary output of both models in the Neural IR-Explorer
-* manually compare and interpret differences of specific queries
+1. generate secondary output for both models
+2. filter output for divergent results of both models (max delta between scores) & save them as filtered secondary output
+3. visualize filtered secondary output of both models in the Neural IR-Explorer
+4. manually select interesting query-document pairs and compare results of both models in side-by-side view
+5. interpret observations
 
-
-
+All adaptions we made to the Neural-IR-Explorer can be viewed in this [Fork](https://github.com/CaRniFeXeR/neural-ir-explorer).
+### Visualizations
 The query *"___ is the ability of cardiac pacemaker cells to spontaneously initiate an electrical impulse without being stimulated."*
 
 The following figure shows the result of TK Model on the left side and the result of FK Model on the right side.
+You can see that FK lags to identify some significant words related to the current query (e.g. *heart*), while TK mostly identified important words. It is very interesting that TK associates the first occurrence of *heart* with *being*, while the second occurrence, which is located next to *cardiac* is related to *cardiac*.
 
 ![_](documents\report_heart_query_overall.png)
 
-You can see that FK lags to identify some significant words related to the current query (e.g. heart).
+In the following figure we can clearly see that FK does not associates *cardiac* with obvious choose *heart*.
 
-For instance, 
+![_](documents\report_heart_query_overall_cardiac.png)
+
+Further examples indicate that FK lags in finding contextual similarities in the document. For instance, for the word *being* TK correctly finds similarities to *body*, *is* and *heart*, while FK only associates it with *cardiac*.
 
 ![_](documents\report_heart_query_overall_being.png)
+
+But there are also examples for which FK clearly catches the context of the query better than TK. In the following figure we see that FK associates *pacemaker* with *implanted*, *impulses* and *pacemaker* while TK only indicates *pacemaker* in the document.
+
+![_](documents\report_heart_query_overall_pacemaker.png)
+
+### Conclusion
+
+In conclusion it is interesting that token mixing in FNET style works at all.
+In retro perspective choosing the greatest score delta ... 
+
 
 * tk better
 
     * heart context --> tk: heart body, heart caraidc fk: gar nicht
-    * being --> tk: is, body, heart, heart, fk: cardiac
+    * being --> tk: is, body, heart, heart, fk: cardiac 
     * cardiac -->  tk: cardiac, heart, heart, fk: cardiac, heart
-    * is --> tk: is, fk: electrical, is, heart, electric, called
+    * is --> tk: is, fk: electrical, is, heart, electric, called 
 * fk better
     * impluse --> eletric fk bei tk nur impluse
     * pacemaker --> tk: pacemaker, fk: implanted, impulses, pacemaker
+
+
+dfd
+* dersribe filtering
+ describe
+* interesting that fnet works at all
+* score delta maybe not the perfect thing (as we have seen) --> but extracted results that differ 
+* fontawsoem 
 
