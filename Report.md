@@ -83,3 +83,26 @@ Further our semi-automated evaluation process looks as followed:
 * manually compare and interpret differences of specific queries
 
 
+
+The query *"___ is the ability of cardiac pacemaker cells to spontaneously initiate an electrical impulse without being stimulated."*
+
+The following figure shows the result of TK Model on the left side and the result of FK Model on the right side.
+
+![_](documents\report_heart_query_overall.png)
+
+You can see that FK lags to identify some significant words related to the current query (e.g. heart).
+
+For instance, 
+
+![_](documents\report_heart_query_overall_being.png)
+
+* tk better
+
+    * heart context --> tk: heart body, heart caraidc fk: gar nicht
+    * being --> tk: is, body, heart, heart, fk: cardiac
+    * cardiac -->  tk: cardiac, heart, heart, fk: cardiac, heart
+    * is --> tk: is, fk: electrical, is, heart, electric, called
+* fk better
+    * impluse --> eletric fk bei tk nur impluse
+    * pacemaker --> tk: pacemaker, fk: implanted, impulses, pacemaker
+
