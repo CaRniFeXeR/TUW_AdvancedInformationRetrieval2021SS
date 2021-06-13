@@ -64,8 +64,8 @@ class SecondaryBatchOutput():
     def doc_id(self) -> List[str]:
         return self.__doc_id
 
-    def to_dict(self) -> Dict[str, numpy.ndarray]:
-        __secondary_output: Dict[str, numpy.ndarray] = {}
+    def to_dict(self) -> Dict[str, Dict[str, Dict[str, numpy.ndarray]]]:
+        __secondary_output: Dict[str, Dict[str, Dict[str, numpy.ndarray]]] = {}
 
         for sample_index, query_id in enumerate(self.query_id):
             doc_id: str = self.doc_id[sample_index]
@@ -81,6 +81,85 @@ class SecondaryBatchOutput():
                 __secondary_output[query_id][doc_id]["cosine_matrix_masked"] = self.cosine_matrix.cpu()[sample_index].data.numpy()
 
         return __secondary_output
+
+class SecondaryOutput():
+    def __init__(self, score: numpy.ndarray, per_kernel: numpy.ndarray, per_kernel_mean: numpy.ndarray, cosine_matrix: numpy.ndarray, query_id: str, doc_id: str):
+        self.__score: numpy.ndarray = score
+        self.__per_kernel: numpy.ndarray = per_kernel
+        self.__per_kernel_mean: numpy.ndarray = per_kernel_mean
+        self.__cosine_matrix: numpy.ndarray = cosine_matrix
+        self.__query_id: str = query_id
+        self.__doc_id: str = doc_id
+
+    @property
+    def score(self) -> numpy.ndarray:
+        return self.__score
+
+    @property
+    def per_kernel(self) -> numpy.ndarray:
+        return self.__per_kernel
+
+    @property
+    def per_kernel_mean(self) -> numpy.ndarray:
+        return self.__per_kernel_mean
+
+    @property
+    def cosine_matrix(self) -> numpy.ndarray:
+        return self.__cosine_matrix
+
+    @property
+    def query_id(self) -> str:
+        return self.__query_id
+
+    @property
+    def doc_id(self) -> str:
+        return self.__doc_id
+
+    @staticmethod
+    def to_dict(secondary_outputs: List[Any]) -> Dict[str, Dict[str, Dict[str, numpy.ndarray]]]:
+        __secondary_output: Dict[str, Dict[str, Dict[str, numpy.ndarray]]] = {}
+
+        for entry in secondary_outputs:
+            if not entry.query_id in __secondary_output.keys():
+                __secondary_output[entry.query_id] = {}
+
+            if not entry.doc_id in __secondary_output[entry.query_id].keys():
+                __secondary_output[entry.query_id][entry.doc_id] = {}
+                __secondary_output[entry.query_id][entry.doc_id]["score"] = entry.score
+                __secondary_output[entry.query_id][entry.doc_id]["per_kernel"] = entry.per_kernel
+                __secondary_output[entry.query_id][entry.doc_id]["per_kernel_mean"] = entry.per_kernel_mean
+                __secondary_output[entry.query_id][entry.doc_id]["cosine_matrix_masked"] = entry.cosine_matrix
+
+        return __secondary_output
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Dict[str, Dict[str, numpy.ndarray]]]):
+        secondary_outputs: List[SecondaryOutput] = []
+
+        for query_id, doc_dict in data.items():
+            for doc_id, secondary_output_dict in doc_dict.items():
+                secondary_outputs.append(cls(score=secondary_output_dict["score"], per_kernel=secondary_output_dict["per_kernel"], per_kernel_mean=secondary_output_dict["per_kernel_mean"], cosine_matrix=secondary_output_dict["cosine_matrix_masked"], query_id=query_id, doc_id=doc_id))
+
+        return secondary_outputs
+
+class ScoreDelta():
+    def __init__(self, query_id: str, doc_id: str, score_1: float, score_2: float):
+        self.__query_id: str = query_id
+        self.__doc_id: str = doc_id
+        self.__score_1: float = score_1
+        self.__score_2: float = score_2
+
+    @property
+    def query_id(self) -> str:
+        return self.__query_id
+
+    @property
+    def doc_id(self) -> str:
+        return self.__doc_id
+
+    @property
+    def value(self) -> float:
+        return abs(self.__score_1 - self.__score_2)
 
 class SecondaryBatchOutputLogger(ABC):
     @abstractmethod
