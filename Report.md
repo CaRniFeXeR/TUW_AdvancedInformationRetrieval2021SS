@@ -2,18 +2,14 @@
 
 Student 1 Matrikelnummer + Name:
 Student 2 Matrikelnummer + Name:
-Student 3 Matrikelnummer + Name:
+Student 3 11777780 + Kowarsch Florian:
 
 
-* Task 3 Neural IR-Explorer Files erstellen --> Christopher
-* Task 3 files erstellen ausführen --> Florian
-* Task 2 Etractive QA, ausführen und im Report beschreiben --> Thomas
+* Task 2 Etractive QA im Report beschreiben --> Thomas
 * Task 1 Testssetscores berechnen --> Thomas
 * Task 1 Conv-Model findings --> Christopher
 * Task 1 TK-Model findings --> Florian
 * Task 1 KNRM findings --> Thomas
-* Task 3 Neural IR-Explorer mit eigen files starten --> Florian
-* Task 3 find difference in model tk and model fk results 
 
 # Report
 
@@ -28,13 +24,10 @@ todo describe problems and solutions implementing CONV-KNRM
 ### TK
 The biggest challenge implementing model TK was to correctly apply every implementation detail and little tricks.
 For instance, without running into troubles I would have never considered to pre-initialize weights of the learning-to-rank layer with small values.
-Also differences that are not explicitly mentioned in the paper (like applying tanh on the cosine-similarity matrix), had quite an impact on the resulting performance.
+Also differences that are not explicitly mentioned in the paper (like applying tanh on the cosine-similarity matrix), had quite an impact on the resulting performance and could only be observed by trial and error. 
+As always after bigger adaption hyperparameters like learning rate or weight decay have be reevaluated. This process is definitely more difficult and time consuming than expected.
+All this mentioned difficulties intensify itself by the needed time to train the network. Every little tweak to test, every hypothesis to modify the network needs at least 45min of training time to be answered. I am aware that this time consumption is minimal compared to other way bigger models, however it is still more demanding than the development of a classical non NN re-ranker or a very small NN.
 
-
-    todo describe problems and solutions implementing TK
-    choosing the correct hyperparameters learning rate)
-    knowing specific weight tricks --> weight initialization
-    choosing correct time to stop
 
 ### FK
 Since the aim of the TK-Model is to provide an efficient and lightweight neural re-ranking model we considered the computational efficient Fourier-transformation layers of [FNET]((https://arxiv.org/pdf/2105.03824.pdf)) as legitimate extension to this approach. 
@@ -63,7 +56,7 @@ Despite this interesting results one has to question if more efficient models th
 
 ## Part 3
 
-For Part 3 we were interested in analyzing the differences between TK and FK model. How does the Fourier-Transformation token mixing affect the output and similarities scores compared to self attention token mixing. Are there spotable differences at all? 
+For Part 3 we were interested in analyzing the differences between TK and FK model. How does the Fourier-Transformation token mixing affect the output and similarities scores compared to self attention token mixing. Are there spotable differences at all? Can the differences in performance be identified as the ability to capture the whole context of a token set? If yes can this be explained by the differences in the similarity matrix?
 ### Setup
 In order to compare and visualize divergent predictions of both models we reused the [Neural IR-Explorer](https://github.com/sebastian-hofstaetter/neural-ir-explorer). In the following list we describe the steps we have taken to execute this plan:
 
@@ -80,11 +73,11 @@ Further our semi-automated evaluation process looks as followed:
 2. filter output for divergent results of both models (max delta between scores) & save them as filtered secondary output
 3. visualize filtered secondary output of both models in the Neural IR-Explorer
 4. manually select interesting query-document pairs and compare results of both models in side-by-side view
-5. interpret observations
+5. qualitatively interpret observations
 
-All adaptions we made to the Neural-IR-Explorer can be viewed in this [Fork](https://github.com/CaRniFeXeR/neural-ir-explorer).
+All modifications we made to the Neural-IR-Explorer can be viewed on GitHub in this [Fork](https://github.com/CaRniFeXeR/neural-ir-explorer).
 ### Visualizations
-The query *"___ is the ability of cardiac pacemaker cells to spontaneously initiate an electrical impulse without being stimulated."*
+The query *"___ is the ability of cardiac pacemaker cells to spontaneously initiate an electrical impulse without being stimulated."* contains the query-document pairs with the greatest difference in score between both models. Therefore we started our analysis with this query.
 
 The following figure shows the result of TK Model on the left side and the result of FK Model on the right side.
 You can see that FK lags to identify some significant words related to the current query (e.g. *heart*), while TK mostly identified important words. It is very interesting that TK associates the first occurrence of *heart* with *being*, while the second occurrence, which is located next to *cardiac* is related to *cardiac*.
@@ -105,8 +98,10 @@ But there are also examples for which FK clearly catches the context of the quer
 
 ### Conclusion
 
-In conclusion it is interesting that token mixing in FNET style works at all.
-In retro perspective choosing the greatest score delta ... 
+In conclusion it is interesting that token mixing in FNET style works at all. We are glad that our reproduction of this concept resulted in the same performance expectation as stated by the authors of FNET.
+The are many aspects that we could have done differently in the process of analyzing and visualizing the comparison of both models.
+In retro perspective choosing the greatest score delta to extract interesting query-doc pairs may not be the perfect choice, since it is normal that the score ranges can differ from model to model. For re-ranking only the relative scores between query-doc pairs are relevant not the actual score value. Maybe it would have been more appropriate to select the queries with greatest rank differences between the two model for comparison. However, as seen above, the score delta yielded good examples in which both models greatly differ and allowed to interpret this differences meaningful.
+Another point is that this analysis is only done qualitatively. To provide more assured statements it could be quantality computed if the rank difference is greater for query-doc pairs that rely more on contextualized understanding (e.g. where it is less likely that exact words of the query occur in relevant documents).
 
 
 * tk better
