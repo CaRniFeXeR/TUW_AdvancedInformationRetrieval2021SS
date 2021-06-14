@@ -15,6 +15,12 @@ Student 3 11777780 + Kowarsch Florian:
 
 ## Part 1
 
+### Training and Evaluation
+    todo explain overall training and evaluation process, findings etc.
+    todo explain how we implemented early stopping
+    
+We recorded and visualized our training runs with wandb.
+
 ### KNRM
     todo describe problems and solutions implementing KNRM
 
@@ -53,6 +59,7 @@ Despite this interesting results one has to question if more efficient models th
     todo describe used model for extractive qa; which reranker model is used; results on fira etc.
     - generate result files from our best reranking model
     - evaluate qa results and write report
+    - describe findings while implementing part 2
 
 ## Part 3
 
@@ -96,29 +103,21 @@ But there are also examples for which FK clearly catches the context of the quer
 
 ![_](documents\report_heart_query_overall_pacemaker.png)
 
+Another good comparison is served by a document form the query "*how long does it take for the earth to make one revolution?*". For instance, as shown in the following figure, model FK seems to over weight similarities with *how*:
+
+![_](documents\report_revolution_query_how.png)
+
+In the same query-doc pair we can see an example how FK seems to capture certain relationships, but weights them less strongly that TK. TK shows similarity from *long* in the query to *long*, *hour* (*day* and *cycles*) in the document while FK actual also captures this relationships but indicates them with much lower similarity.
+
+![_](documents\report_revolution_query_long.png)
+
 ### Conclusion
 
-In conclusion it is interesting that token mixing in FNET style works at all. We are glad that our reproduction of this concept resulted in the same performance expectation as stated by the authors of FNET.
+In conclusion it is interesting that token mixing in FNET style works at all. We are glad that our reproduction of this concept resulted in the same performance expectation as stated by the authors of FNET. Although it does not reach the performance of model TK, which uses self attention, it clearly shows that the Fourier-Transformation token mixing is beneficial for context-aware reranking, since it outperforms the non-context-aware approach KNRM and performs similar to the local context approach CONV-KNRM.
 The are many aspects that we could have done differently in the process of analyzing and visualizing the comparison of both models.
 In retro perspective choosing the greatest score delta to extract interesting query-doc pairs may not be the perfect choice, since it is normal that the score ranges can differ from model to model. For re-ranking only the relative scores between query-doc pairs are relevant not the actual score value. Maybe it would have been more appropriate to select the queries with greatest rank differences between the two model for comparison. However, as seen above, the score delta yielded good examples in which both models greatly differ and allowed to interpret this differences meaningful.
 Another point is that this analysis is only done qualitatively. To provide more assured statements it could be quantality computed if the rank difference is greater for query-doc pairs that rely more on contextualized understanding (e.g. where it is less likely that exact words of the query occur in relevant documents).
 
 
-* tk better
-
-    * heart context --> tk: heart body, heart caraidc fk: gar nicht
-    * being --> tk: is, body, heart, heart, fk: cardiac 
-    * cardiac -->  tk: cardiac, heart, heart, fk: cardiac, heart
-    * is --> tk: is, fk: electrical, is, heart, electric, called 
-* fk better
-    * impluse --> eletric fk bei tk nur impluse
-    * pacemaker --> tk: pacemaker, fk: implanted, impulses, pacemaker
-
-
-dfd
-* dersribe filtering
- describe
-* interesting that fnet works at all
-* score delta maybe not the perfect thing (as we have seen) --> but extracted results that differ 
-* fontawsoem 
+For further work it would be interesting to compare the FK model performance with TK model under the use of more training data and with varying number of FNET-layers.
 
