@@ -28,7 +28,11 @@ There are a multitude of measures that we have taken to enusre a suffiecently we
 - The model has been evaluated using a certain interval
 - after every model evaluation the early stopping criteria were checkd
 
-Todo: model evaluation
+For testing/evaluation we used the models to rank the documents in the test dataset
+and than calculated the following performance metrics
+- MRR@10
+- nDCG@10
+but used MRR@10 as our most important performance indicator.
 
 To improve the training process we implemented a custom early stopping solution.
 The consists of the so called early stopping watcher which has the following important features:
