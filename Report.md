@@ -7,11 +7,13 @@ Student 2: 1129115, Kaufmann Thomas:
 Student 3: 11777780, Kowarsch Florian:
 
 
-* Task 2 Etractive QA im Report beschreiben --> Thomas
+* Task 2 Extractive QA im Report beschreiben --> Thomas  ==> DONE
 * Task 1 Testssetscores berechnen --> Thomas    ==> DONE
 * Task 1 Conv-Model findings --> Christopher ==> DONE
 * Task 1 TK-Model findings --> Florian      ==> DONE
 * Task 1 KNRM findings --> Thomas           ==> DONE
+  
+
 * Task 1: lookup training losses in wandb for the table
 * Task 1: one line about the hyper params for the different models
 # Report
