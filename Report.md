@@ -32,7 +32,14 @@ We used pytorch's clap function to ensure a minimum value of 10^(-10), followed 
 In addition, some manual tests with different hyper-parameters were conducted, however, parameters listed in the paper turned out to be (more or less) best. 
 
 ### CONV-KNRM
-todo describe problems and solutions implementing CONV-KNRM
+The convolutional knrm builds upon the previously described knrm uses n-grams of different length instead of the plain word embeddings.
+During implementation i followed the described architecture of Dai et al. very strictly and only ran into problems regarding the usage
+of pytorch. I used pytorch for the first time and played around with it quite a lot.
+The biggest issues I had were related to wrong tensor dimension and exceeding the available memory.
+To be able to further process the word embeddings using the convolutional layer i had to switch dimensions.
+I also tried to limit the input for each layer to only one tensor, therefore using the tensor stack method extensively.
+Unfortunately this caused some memory problems especially when trying to train the model on a GPU. Because of this i reverted the layer
+inputs back to using multiple inputs.
 
 ### TK
 The biggest challenge implementing model TK was to correctly apply every implementation detail and little tricks.
