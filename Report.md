@@ -20,8 +20,13 @@ Student 3: 11777780, Kowarsch Florian:
 
 ### Training and Evaluation
     todo explain overall training and evaluation process, findings etc.
-    todo explain how we implemented early stopping
-    
+
+To improve the training process we implemented a custom early stopping solution.
+The consists of the so called early stopping watcher which has the following important features:
+- It stops the training process if some criteria are (not) met
+- It allows you to add custom criteria to be checked periodically
+- It allows your to set the "patience" of the watcher defining how often certain criteria can (not) be met before the watcher stops the training process
+
 We recorded and visualized our training runs with wandb.
 
 ### KNRM
