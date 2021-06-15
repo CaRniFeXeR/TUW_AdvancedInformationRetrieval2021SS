@@ -141,8 +141,7 @@ Another good comparison is served by a document form the query "*how long does i
 
 ![_](documents\report_revolution_query_how.png)
 
-In the same query-doc pair we can see an example how FK seems to capture certain relationships, but weights them less strongly that TK. TK shows similarity from *long* in the query to *long*, *hour* (*day* and *cycles*) in the document while FK actual also captures this relationships but indicates them with much lower similarity.
-
+In the same query-doc pair we can see an example how FK seems to capture certain relationships, but weights them less strongly that TK. TK shows similarity from *long* in the query to *long*, *hour* (*day* and *cycles*) in the document while FK actual also captures this relationships but indicates them with much lower similarity. This is especially interesting since the FK actual has a lower alpha value of 0.73 compared to TK 0.82 indicating that model FK learned to integrate the contextualization 
 ![_](documents\report_revolution_query_long.png)
 
 ### Conclusion
