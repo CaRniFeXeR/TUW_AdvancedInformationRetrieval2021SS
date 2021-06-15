@@ -95,17 +95,19 @@ We took a snapshot of the best model obtained from the last section's evaluation
 During the mapping of document to reference answer, we observed that our re-ranking procedure may not be optimal, since for quite a few documents no reference answers could be obtained. 
 As suggested in the TUWEL discussion board, we counted these cases with a score of zero, leading to quite a performance shift towards this direction.   
 
-The following table briefly compares average F1 and exact scores as well as their standard deviations for both QA models. It is important to note that the sizes of the respective testsets different significantly (53k for the first part as described above and only approximately 2000 for the second part)
+The following table briefly compares average F1 and exact scores as well as their standard deviations for both QA models. 
+There are several important remarks to be made: 
+1) the sizes of the testsets differs significantly due to the recommended procedure to compile the testset. 
+2) due to the re-ranking it is quite frequent that the select top1 document does not have a reference answer. As mentioned, in this case we score it with 0.0. 
 
+| Model | Test-Set | Testset Size | F1 | Exact | No Reference |
+|-------------:|----:|----:|------:|------:|----:|
+| Distilbert QA         | FIRA qa-tuples                    | 52606 | 0.371 (+- 0.32)   | 0.108 (+- 0.311)  | -     |
+| FK + Distilbert QA    | MSMARCO testset + FIRA answers    | 1992  | 0.150 (+- 0.28)   | 0.055 (+- 0.228)  | 1240  |    
 
- 
-
-
-
-    todo describe used model for extractive qa; which reranker model is used; results on fira etc.
-    - generate result files from our best reranking model
-    - evaluate qa results and write report
-    - describe findings while implementing part 2
+In general, it can be observed that the Distilbert QA model actually behaves quite well (although we do not have any baseline here). 
+For the model in the context of a "simulated" re-ranking pipeline with re-ranking, on the other, a significant decrease in quality can be observed, obviously due to the relative high number of more than 60% where the reference was missing and a score of 0.0 was enforced.
+When not considering these cases, apparently the F1 and exact score increase to a level similar to the pure transformer based model.    
 
 ## Part 3
 
