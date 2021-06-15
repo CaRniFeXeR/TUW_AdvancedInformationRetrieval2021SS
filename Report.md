@@ -82,6 +82,25 @@ todo add some interpretation...
 
 
 ## Part 2
+The second part of assignment was about transformers and an extractive qa task. 
+We started with the pure transformer model without re-ranking and decided on the distilled BERT based model "distilbert-base-uncased-distilled-squad". 
+We used configurations for sequence and question lengths in accordance to part 1 and implemented some helper classes to invoke the provided F1 and exact metrics.   
+Even though we decided on a distilled model, processing the entire test set took quite a while. 
+We set the device to a GPU in the pipeline constructor appropriately and investigated the internals of the model/pipeline to find ways to gain speedup. 
+First, we tried to pass batches of sequence question tuples and even set size of the threadpool > 1 (which made things even worse) without observing a significant speedup. 
+In the end, to process the entire test set of approx. 53000 entries took about 24h. 
+
+As our novel FK model showed its slight advantages on the FIRA labels, it was selected for our re-ranking phase in this part of the exercise.
+We took a snapshot of the best model obtained from the last section's evaluation phase and implemented some snippets to transform the MSMARCO test set into an input file compatible with the fira.qrels.qa-tuples.tsv data set format.
+During the mapping of document to reference answer, we observed that our re-ranking procedure may not be optimal, since for quite a few documents no reference answers could be obtained. 
+As suggested in the TUWEL discussion board, we counted these cases with a score of zero, leading to quite a performance shift towards this direction.   
+
+The following table briefly compares average F1 and exact scores as well as their standard deviations for both QA models. It is important to note that the sizes of the respective testsets different significantly (53k for the first part as described above and only approximately 2000 for the second part)
+
+
+ 
+
+
 
     todo describe used model for extractive qa; which reranker model is used; results on fira etc.
     - generate result files from our best reranking model
