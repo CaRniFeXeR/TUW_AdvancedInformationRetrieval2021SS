@@ -1,16 +1,19 @@
 # Team information
 
-Student 1 Matrikelnummer + Name:
-Student 2 Matrikelnummer + Name:
-Student 3 11777780 + Kowarsch Florian:
+Student 1: 01529038, Preinsperger Christopher:
+
+Student 2: 1129115, Kaufmann Thomas:
+
+Student 3: 11777780, Kowarsch Florian:
 
 
 * Task 2 Etractive QA im Report beschreiben --> Thomas
-* Task 1 Testssetscores berechnen --> Thomas
+* Task 1 Testssetscores berechnen --> Thomas    ==> DONE
 * Task 1 Conv-Model findings --> Christopher
-* Task 1 TK-Model findings --> Florian
-* Task 1 KNRM findings --> Thomas
-
+* Task 1 TK-Model findings --> Florian      ==> DONE
+* Task 1 KNRM findings --> Thomas           ==> DONE
+* Task 1: lookup training losses in wandb for the table
+* Task 1: one line about the hyper params for the different models
 # Report
 
 ## Part 1
@@ -22,7 +25,11 @@ Student 3 11777780 + Kowarsch Florian:
 We recorded and visualized our training runs with wandb.
 
 ### KNRM
-    todo describe problems and solutions implementing KNRM
+Compared to the more sophisticated approaches described below, implementing KNRM was in general relatively straight forward. 
+KNRM consists in general only of very few parameters, thus opens up rather limited degree of freedom for customizations. 
+The main challenges were essentially to properly handle numerical issues due to the log-sum of each query word's feature vectors. 
+We used pytorch's clap function to ensure a minimum value of 10^(-10), followed by proper masking of paddings to avoid introducing errors.
+In addition, some manual tests with different hyper-parameters were conducted, however, parameters listed in the paper turned out to be (more or less) best. 
 
 ### CONV-KNRM
 todo describe problems and solutions implementing CONV-KNRM
@@ -49,9 +56,29 @@ Despite this interesting results one has to question if more efficient models th
 
 ### Results
 
-| Model | Test-Set | Batches |  Training Loss    |  Validation MRR@10 | Test MRR@10  | Comment |
-|-------:|------:|----:|----:|----:|----:|----|
-| KNRM | MSMARCO | 12323 | 0.123 | 0.23  | 0.23 | super nice run |
+The implemented re-ranking models were trained with the MSMARCO training set consisting of 2.4e^6 samples and evaluated against the coarse grained MSMARCO and the more fine-grained FIRA labelsets.
+Training was conducted with batch sizes of 128 and hyper-parameters were chosen depending on the particular model at hand. 
+For KNRM, a learning rate of 0.001 was selected in accordance to the paper and weight decay was set to 0.01. 
+For ... < fill me in> ...
+
+The following table compares training loss and MRR@10 on validation and test sets for the implemented models. 
+
+In general, it can be observed that model complexity and thus the expressiveness goes in accordance with its quality in terms of the MRR@10 statistic.
+todo add some interpretation...
+
+
+| Model | Test-Set | Training Batch Size |  Training Loss    |  Validation MRR@10 | Test MRR@10  |
+|-------:|------:|----:|----:|----:|----:|
+| KNRM      | MSMARCO | 128 | 0.5313  | 0.189  | 0.193 | 
+| Conv-KNRM | MSMARCO | 128 | -       | 0.213  | 0.207 |
+| TK        | MSMARCO | 128 | -       | 0.232  | 0.231 |
+| FK        | MSMARCO | 128 | -       | 0.230  | 0.220 | 
+|------------------|------------------|------------------|------------------|------------------|------------------|
+| KNRM      | FIRA  | 128 | - | 0.619 | 0.608 | 
+| Conv-KNRM | FIRA  | 128 | - | 0.613 | 0.607 |
+| TK        | FIRA  | 128 | - | 0.659 | 0.647 |
+| FK        | FIRA  | 128 | - | 0.667 | 0.664 | 
+
 
 
 ## Part 2
