@@ -9,7 +9,7 @@ Student 3: 11777780, Kowarsch Florian:
 
 * Task 2 Etractive QA im Report beschreiben --> Thomas
 * Task 1 Testssetscores berechnen --> Thomas    ==> DONE
-* Task 1 Conv-Model findings --> Christopher
+* Task 1 Conv-Model findings --> Christopher ==> DONE
 * Task 1 TK-Model findings --> Florian      ==> DONE
 * Task 1 KNRM findings --> Thomas           ==> DONE
 * Task 1: lookup training losses in wandb for the table
@@ -19,7 +19,16 @@ Student 3: 11777780, Kowarsch Florian:
 ## Part 1
 
 ### Training and Evaluation
-    todo explain overall training and evaluation process, findings etc.
+There are a multitude of measures that we have taken to enusre a suffiecently well trained model.
+- We trained our models for multiple epochs
+- We used a custom early stopping implementation to end the training process if the follwing criteria were met
+- - The number of iterations must not exceed 100000
+- - A minimum loss decrease of 0.001 has to achieved
+- - Looking at the last 40 losses a minimum standard deviation of 0.01 has to be reached
+- The model has been evaluated using a certain interval
+- after every model evaluation the early stopping criteria were checkd
+
+Todo: model evaluation
 
 To improve the training process we implemented a custom early stopping solution.
 The consists of the so called early stopping watcher which has the following important features:
