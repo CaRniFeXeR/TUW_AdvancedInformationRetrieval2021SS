@@ -9,7 +9,7 @@ Student 3: 11777780, Kowarsch Florian:
 
 * Task 2 Etractive QA im Report beschreiben --> Thomas
 * Task 1 Testssetscores berechnen --> Thomas    ==> DONE
-* Task 1 Conv-Model findings --> Christopher
+* Task 1 Conv-Model findings --> Christopher ==> DONE
 * Task 1 TK-Model findings --> Florian      ==> DONE
 * Task 1 KNRM findings --> Thomas           ==> DONE
 * Task 1: lookup training losses in wandb for the table
@@ -19,9 +19,27 @@ Student 3: 11777780, Kowarsch Florian:
 ## Part 1
 
 ### Training and Evaluation
-    todo explain overall training and evaluation process, findings etc.
-    todo explain how we implemented early stopping
-    
+There are a multitude of measures that we have taken to enusre a suffiecently well trained model.
+- We trained our models for multiple epochs
+- We used a custom early stopping implementation to end the training process if the follwing criteria were met
+- - The number of iterations must not exceed 100000
+- - A minimum loss decrease of 0.001 has to achieved
+- - Looking at the last 40 losses a minimum standard deviation of 0.01 has to be reached
+- The model has been evaluated using a certain interval
+- after every model evaluation the early stopping criteria were checkd
+
+For testing/evaluation we used the models to rank the documents in the test dataset
+and than calculated the following performance metrics
+- MRR@10
+- nDCG@10
+but used MRR@10 as our most important performance indicator.
+
+To improve the training process we implemented a custom early stopping solution.
+The consists of the so called early stopping watcher which has the following important features:
+- It stops the training process if some criteria are (not) met
+- It allows you to add custom criteria to be checked periodically
+- It allows your to set the "patience" of the watcher defining how often certain criteria can (not) be met before the watcher stops the training process
+
 We recorded and visualized our training runs with wandb.
 
 ### KNRM
@@ -32,7 +50,14 @@ We used pytorch's clap function to ensure a minimum value of 10^(-10), followed 
 In addition, some manual tests with different hyper-parameters were conducted, however, parameters listed in the paper turned out to be (more or less) best. 
 
 ### CONV-KNRM
-todo describe problems and solutions implementing CONV-KNRM
+The convolutional knrm builds upon the previously described knrm uses n-grams of different length instead of the plain word embeddings.
+During implementation i followed the described architecture of Dai et al. very strictly and only ran into problems regarding the usage
+of pytorch. I used pytorch for the first time and played around with it quite a lot.
+The biggest issues I had were related to wrong tensor dimension and exceeding the available memory.
+To be able to further process the word embeddings using the convolutional layer i had to switch dimensions.
+I also tried to limit the input for each layer to only one tensor, therefore using the tensor stack method extensively.
+Unfortunately this caused some memory problems especially when trying to train the model on a GPU. Because of this i reverted the layer
+inputs back to using multiple inputs.
 
 ### TK
 The biggest challenge implementing model TK was to correctly apply every implementation detail and little tricks.
