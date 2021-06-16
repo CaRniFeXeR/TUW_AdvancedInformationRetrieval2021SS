@@ -7,13 +7,6 @@ Student 2: 1129115, Kaufmann Thomas:
 Student 3: 11777780, Kowarsch Florian:
 
 
-* Task 2 Extractive QA im Report beschreiben --> Thomas  ==> DONE
-* Task 1 Testssetscores berechnen --> Thomas    ==> DONE
-* Task 1 Conv-Model findings --> Christopher ==> DONE
-* Task 1 TK-Model findings --> Florian      ==> DONE
-* Task 1 KNRM findings --> Thomas           ==> DONE
-  
-
 * Task 1: lookup training losses in wandb for the table
 * Task 1: one line about the hyper params for the different models
 # Report
@@ -21,14 +14,14 @@ Student 3: 11777780, Kowarsch Florian:
 ## Part 1
 
 ### Training and Evaluation
-There are a multitude of measures that we have taken to enusre a suffiecently well trained model.
+There are a multitude of measures that we have taken to ensure a sufficiently well trained model.
 - We trained our models for multiple epochs
-- We used a custom early stopping implementation to end the training process if the follwing criteria were met
+- We used a custom early stopping implementation to end the training process if the following criteria were met
 - - The number of iterations must not exceed 100000
 - - A minimum loss decrease of 0.001 has to achieved
 - - Looking at the last 40 losses a minimum standard deviation of 0.01 has to be reached
 - The model has been evaluated using a certain interval
-- after every model evaluation the early stopping criteria were checkd
+- after every model evaluation the early stopping criteria were checked
 
 For testing/evaluation we used the models to rank the documents in the test dataset
 and than calculated the following performance metrics
@@ -40,9 +33,9 @@ To improve the training process we implemented a custom early stopping solution.
 The consists of the so called early stopping watcher which has the following important features:
 - It stops the training process if some criteria are (not) met
 - It allows you to add custom criteria to be checked periodically
-- It allows your to set the "patience" of the watcher defining how often certain criteria can (not) be met before the watcher stops the training process
+- It allows your to set the "patience" of the watcher defining how often certain criteria can (not) be met in a row before the watcher stops the training process
 
-We recorded and visualized our training runs with wandb.
+We recorded and visualized our training runs with [wandb](https://wandb.ai/).
 
 ### KNRM
 Compared to the more sophisticated approaches described below, implementing KNRM was in general relatively straight forward. 
@@ -53,28 +46,29 @@ In addition, some manual tests with different hyper-parameters were conducted, h
 
 ### CONV-KNRM
 The convolutional knrm builds upon the previously described knrm uses n-grams of different length instead of the plain word embeddings.
-During implementation i followed the described architecture of Dai et al. very strictly and only ran into problems regarding the usage
+During implementation I followed the described architecture of Dai et al. very strictly and only ran into problems regarding the usage
 of pytorch. I used pytorch for the first time and played around with it quite a lot.
 The biggest issues I had were related to wrong tensor dimension and exceeding the available memory.
-To be able to further process the word embeddings using the convolutional layer i had to switch dimensions.
+To be able to further process the word embeddings using the convolutional layer I had to switch dimensions.
 I also tried to limit the input for each layer to only one tensor, therefore using the tensor stack method extensively.
-Unfortunately this caused some memory problems especially when trying to train the model on a GPU. Because of this i reverted the layer
+Unfortunately this caused some memory problems especially when trying to train the model on a GPU. Because of this I reverted the layer
 inputs back to using multiple inputs.
 
 ### TK
 The biggest challenge implementing model TK was to correctly apply every implementation detail and little tricks.
 For instance, without running into troubles I would have never considered to pre-initialize weights of the learning-to-rank layer with small values.
 Also differences that are not explicitly mentioned in the paper (like applying tanh on the cosine-similarity matrix), had quite an impact on the resulting performance and could only be observed by trial and error. 
-As always after bigger adaption hyperparameters like learning rate or weight decay have be reevaluated. This process is definitely more difficult and time consuming than expected.
+Furthermore I refused to use AllenNLP's StackedSelfAttention Module and aimed to implement this part on my own. However it took quiet a lot attempts until my implementation was error free and achieved similar good results as using AllenNLP's version. So in practice I would not recommend to reimplement such things on your own, nevertheless it was a learningfull and interesting experience.
+As always after bigger adaption hyperparameters like learning rate or weight decay have been reevaluated. This process is definitely more difficult and time consuming than expected.
 All this mentioned difficulties intensify itself by the needed time to train the network. Every little tweak to test, every hypothesis to modify the network needs at least 45min of training time to be answered. I am aware that this time consumption is minimal compared to other way bigger models, however it is still more demanding than the development of a classical non NN re-ranker or a very small NN.
 
 
 ### FK
-Since the aim of the TK-Model is to provide an efficient and lightweight neural re-ranking model we considered the computational efficient Fourier-transformation layers of [FNET]((https://arxiv.org/pdf/2105.03824.pdf)) as legitimate extension to this approach. 
+Since the aim of the TK-Model is to provide an efficient and lightweight neural re-ranking model we considered the computational efficient Fourier-transformation layers of [FNET]((https://arxiv.org/pdf/2105.03824.pdf)) as legitimate extension of this approach. 
 A common problem of self attention as used in transformers is its O(n^2) runtime and memory requirement.
-Whereas other efficient transformer adaptations (such as Linformers or Performers)  deploy mathematical tricks to reduce the memory and time requirements of attention computation, FNET does not use any attention mechanism at all. Instead it "mixes" the tokens of a sequence by an unparameterized Fourier-Transformation and further processes the mixings with feedforward layers in order to learn to select the desired components of the mix.
+Whereas other efficient transformer adaptations (such as [Linformers](https://arxiv.org/pdf/2006.04768.pdf) or [Performers](https://arxiv.org/pdf/2009.14794.pdf))  deploy mathematical tricks to reduce the memory and time requirements of attention computation, FNET does not use any attention mechanism at all. Instead it "mixes" the tokens of a sequence by an unparameterized Fourier-Transformation and further processes these mixings with feedforward layers in order to learn to select the desired components of the mix.
 According to the [FNET Paper](https://arxiv.org/pdf/2105.03824.pdf) replacing the self attention layers of a transformer with 
-a standard Fourier Transformation can achieve but to 92% of BERT performance while running up to seven times faster on GPUs.
+a standard Fourier Transformation can achieve up to 92% of BERT performance while running up to seven times faster on GPUs.
 We therefore just replaced the stacked self-attention in the TK-Model with stacked Fourier-Transformation-Transformer blocks. 
 With this setup we achieved a MRR@10 on MSMARCO test set of 0.22. It uses the same amount of FNET Layers as self-attention layers used in the TK Model.
 Since our TK Model achieves MRR@10 of 0.24 on the same test set we meet the expectations of the FNET authors by reaching ~91-92% of performance compared to using self-attention while saving about 23% of GPU memory requirement.
@@ -97,9 +91,9 @@ todo add some interpretation...
 | Model | Test-Set | Training Batch Size |  Training Loss    |  Validation MRR@10 | Test MRR@10  |
 |-------:|------:|----:|----:|----:|----:|
 | KNRM      | MSMARCO | 128 | 0.5313  | 0.189  | 0.193 | 
-| Conv-KNRM | MSMARCO | 128 | -       | 0.213  | 0.207 |
-| TK        | MSMARCO | 128 | -       | 0.232  | 0.231 |
-| FK        | MSMARCO | 128 | -       | 0.230  | 0.220 | 
+| Conv-KNRM | MSMARCO | 128 | 0.1034  | 0.213  | 0.207 |
+| TK        | MSMARCO | 128 | 0.8973  | 0.232  | 0.231 |
+| FK        | MSMARCO | 128 | 0.9553  | 0.230  | 0.220 | 
 |------------------|------------------|------------------|------------------|------------------|------------------|
 | KNRM      | FIRA  | 128 | - | 0.619 | 0.608 | 
 | Conv-KNRM | FIRA  | 128 | - | 0.613 | 0.607 |
