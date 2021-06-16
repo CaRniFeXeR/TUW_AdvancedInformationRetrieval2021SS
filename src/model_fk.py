@@ -33,12 +33,13 @@ class FNetFeedForward(nn.Module):
 
 
 class FNetBlock(nn.Module):
+    '''
+    FNET Block as described in the FNET Paper (https://arxiv.org/pdf/2105.03824.pdf).
+    (Similar to Transformer Block but Fourier Transform instead of self attention)
+    '''
 
     @staticmethod
     def fourier_transform(x):
-        # x = torch.fft.fft(torch.fft.fft(x, dim=-1), dim=-2).real
-        # return torch.fft.fft2(x, dim=(-1, -2)).real
-        # return fftn(x, dim=(-1, -2)).real
         return torch.fft.fft(torch.fft.fft(x, dim=-1), dim=-2).real
 
     def __init__(self, dim: int, expensionFactor: int):  # n_ff_hidden_dim : int
@@ -67,7 +68,7 @@ class ContextualizationLayer(nn.Module):
         super().__init__()
 
         # Contextualization
-        # n_layers of transformers stored in a List
+        # n_layers of fnet stored in a List
         self.fNetBlocks: nn.ModuleList[FNetBlock] = nn.ModuleList()
         for i in range(n_layers):
             self.fNetBlocks.append(
@@ -77,6 +78,8 @@ class ContextualizationLayer(nn.Module):
                 )
             )
 
+        # alpha --> controls amount of contextualization
+        # this parameter is 1 value in 3 dims --> to only affect the last dim
         self.mixer = nn.Parameter(torch.full([1, 1, 1], 0.5, dtype=torch.float32, requires_grad=True))
 
     def forward(self, query_embeddings: torch.Tensor, document_embeddings: torch.Tensor, query_mask: torch.BoolTensor, document_mask: torch.BoolTensor) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -105,8 +108,6 @@ class ContextualizationLayer(nn.Module):
         # ^t_i =t_i * alpha + context(t1:n)_i * (1- alpha) --> alpha controls the influence of contextualization --> is also learned
         query_embedded_contextualized = (self.mixer * query_embeddings) + (1 - self.mixer) * query_contextualized
         document_embedded_contextualized = (self.mixer * document_embeddings) + (1 - self.mixer) * document_contextualized
-        # query_embedded_contextualized = (self.alpha * query_embeddings) + (1 - self.alpha) * query_contextualized
-        # document_embedded_contextualized = (self.alpha * document_embeddings_pos) + (1 - self.alpha) * document_contextualized
 
         # since we kept the shape intact through out the transformer part have the following shape for the contextulized embeddings
         #query_embedded_contextualized: (batch_size, query_len, embedding_dim)
@@ -131,10 +132,10 @@ class CrossMatchlayer(nn.Module):
         # cosine matrix m: (batch_size, query_len, doc_len, 1) = (batch_size, 14, 180, 1)
         cosine_matrix_m = self.cosinematrix.forward(query_embbeddings, document_embeddings)
 
+        # tried both but tanh after cosine matrix is better
         cosine_matrix_m = torch.tanh(cosine_matrix_m * query_by_doc_mask)
         # cosine_matrix_m = cosine_matrix_m * query_by_doc_mask
 
-        # todo explain why unsqueez is needed
         cosine_matrix_m = cosine_matrix_m.unsqueeze(-1)
 
         return cosine_matrix_m
@@ -245,9 +246,9 @@ class LearningToRankLayer(nn.Module):
         torch.nn.init.uniform_(self.linear_Slog.weight, -0.014, 0.014)  # inits taken from matchzoo
         torch.nn.init.uniform_(self.linear_Slen.weight, -0.014, 0.014)  # inits taken from matchzoo
 
+        # beta --> to control amount of s_log on the score
+        # gamma --> to control amount of s_len on the score
         self.dense_comb = nn.Linear(2, 1, bias=False)
-        # self.beta = nn.parameter.Parameter(torch.tensor(0.5))  # beta --> to control amount of s_log on the score
-        # self.gamma = nn.parameter.Parameter(torch.tensor(0.5))  # gamma --> to control amount of s_len on the score
 
     def forward(self, log_normed: torch.tensor, length_normed: torch.tensor):
 

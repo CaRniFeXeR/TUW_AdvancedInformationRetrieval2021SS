@@ -61,19 +61,17 @@ class ContextualizationLayer(nn.Module):
                  hidden_dim: int):
         super(ContextualizationLayer, self).__init__()
 
-        self.transformerBlocks : nn.ModuleList[TransformerBlock] = nn.ModuleList()
+        self.transformerBlocks: nn.ModuleList[TransformerBlock] = nn.ModuleList()
         for i in range(n_layers):
             self.transformerBlocks.append(
-                TransformerBlock(input_dim= n_tf_dim,
-                                 hidden_dim= hidden_dim,
-                                 projection_dim= tf_projection_dim,
-                                 n_heads = n_tf_heads)
+                TransformerBlock(input_dim=n_tf_dim,
+                                 hidden_dim=hidden_dim,
+                                 projection_dim=tf_projection_dim,
+                                 n_heads=n_tf_heads)
             )
 
+        # alpha --> to control amount contextualization
         self.mixer = nn.Parameter(torch.full([1, 1, 1], 0.5, dtype=torch.float32, requires_grad=True))
-
-        # should be value between 0 and 1
-        # self.alpha = nn.parameter.Parameter(torch.tensor(0.5))  # alpha --> to control amount contextualization
 
     def forward(self, query_embeddings: torch.Tensor, document_embeddings: torch.Tensor, query_mask: torch.BoolTensor, document_mask: torch.BoolTensor) -> Tuple[torch.Tensor, torch.Tensor]:
 
@@ -101,8 +99,6 @@ class ContextualizationLayer(nn.Module):
         # ^t_i =t_i * alpha + context(t1:n)_i * (1- alpha) --> alpha controls the influence of contextualization --> is also learned
         query_embedded_contextualized = (self.mixer * query_embeddings) + (1 - self.mixer) * query_contextualized
         document_embedded_contextualized = (self.mixer * document_embeddings) + (1 - self.mixer) * document_contextualized
-        # query_embedded_contextualized = (self.alpha * query_embeddings) + (1 - self.alpha) * query_contextualized
-        # document_embedded_contextualized = (self.alpha * document_embeddings_pos) + (1 - self.alpha) * document_contextualized
 
         # since we kept the shape intact through out the transformer part have the following shape for the contextulized embeddings
         #query_embedded_contextualized: (batch_size, query_len, embedding_dim)
@@ -112,9 +108,6 @@ class ContextualizationLayer(nn.Module):
 
     def moveModelToGPU(self) -> nn.Module:
 
-        # for transformerBlock in self.transformerBlocks:
-        #     transformerBlock = transformerBlock.cuda()
-        # self.transformerBlocks = [transformerBlock]
         self.transformerBlocks = self.transformerBlocks.cuda()
 
         return self.cuda()
@@ -139,7 +132,7 @@ class CrossMatchlayer(nn.Module):
         cosine_matrix_m = torch.tanh(cosine_matrix_m * query_by_doc_mask)
         # cosine_matrix_m = cosine_matrix_m * query_by_doc_mask
 
-        # unsqueeze to ad addtional dim
+        # unsqueeze to ad additional dim
         cosine_matrix_m = cosine_matrix_m.unsqueeze(-1)
 
         return cosine_matrix_m
@@ -250,9 +243,9 @@ class LearningToRankLayer(nn.Module):
         torch.nn.init.uniform_(self.linear_Slog.weight, -0.014, 0.014)  # inits taken from matchzoo
         torch.nn.init.uniform_(self.linear_Slen.weight, -0.014, 0.014)  # inits taken from matchzoo
 
+        # beta --> to control amount of s_log on the score
+         # gamma --> to control amount of s_len on the score
         self.dense_comb = nn.Linear(2, 1, bias=False)
-        # self.beta = nn.parameter.Parameter(torch.tensor(0.5))  # beta --> to control amount of s_log on the score
-        # self.gamma = nn.parameter.Parameter(torch.tensor(0.5))  # gamma --> to control amount of s_len on the score
 
     def forward(self, log_normed: torch.tensor, length_normed: torch.tensor):
 
@@ -311,7 +304,7 @@ class TK(nn.Module):
         self.tf_projection_dim = tf_projection_dim
 
         self.word_embeddings = word_embeddings
-        self.contextualization = ContextualizationLayer(n_tf_dim, tf_projection_dim, n_layers, n_tf_heads, hidden_dim= 100)
+        self.contextualization = ContextualizationLayer(n_tf_dim, tf_projection_dim, n_layers, n_tf_heads, hidden_dim=100)
         self.crossmatch = CrossMatchlayer()
         self.kernelpooling = KernelPoolingLayer(n_kernels)
         self.learning_to_rank = LearningToRankLayer(n_kernels)
@@ -357,7 +350,8 @@ class TK(nn.Module):
         output = self.learning_to_rank(s_log, s_len)
 
         if not self.secondary_batch_output_logger is None:
-            self.secondary_batch_output_logger.log(secondary_batch_output=SecondaryBatchOutput(score=output, per_kernel=s_log, per_kernel_mean=s_len, cosine_matrix=cosine_matrix_m.squeeze(-1), query_id=query["id"], doc_id=document["id"]))
+            self.secondary_batch_output_logger.log(secondary_batch_output=SecondaryBatchOutput(score=output, per_kernel=s_log, per_kernel_mean=s_len,
+                                                   cosine_matrix=cosine_matrix_m.squeeze(-1), query_id=query["id"], doc_id=document["id"]))
 
         return output
 
