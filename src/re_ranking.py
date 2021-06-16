@@ -1,25 +1,23 @@
 from abc import ABC, abstractmethod
 from datetime import datetime
-from re import purge
-import wandb
-from typing import Tuple, Type
-from numpy import isin, ndarray
-from torch._C import Value
-import torch
-from torch.functional import Tensor
-from model_fk import FK
-from model_tk import TK
-from model_conv_knrm import *
-from model_knrm import *
-from data_loading import *
-from allennlp.modules.text_field_embedders import BasicTextFieldEmbedder
-from allennlp.modules.token_embedders import Embedding
-from allennlp.data.vocabulary import Vocabulary
+
 import torch
 from allennlp.common import Params, Tqdm
 from allennlp.common.util import prepare_environment
 from allennlp.data.dataloader import PyTorchDataLoader
+from allennlp.data.vocabulary import Vocabulary
+from allennlp.modules.text_field_embedders import BasicTextFieldEmbedder
+from allennlp.modules.token_embedders import Embedding
+from torch.functional import Tensor
+
+import wandb
 from core_metrics import calculate_metrics_plain, load_qrels, unrolled_to_ranked_result
+from data_loading import *
+from model_conv_knrm import *
+from model_fk import FK
+from model_knrm import *
+from model_tk import TK
+
 prepare_environment(Params({}))  # sets the seeds to be fixed
 
 # region [EarlyStopping]
@@ -243,8 +241,6 @@ def modelForwardPassOnTripleBatchData(model: nn.Module, batch: dict, targetValue
 def modelForwardPassOnTupleBatchData(model: nn.Module, batch: dict, onGPU: bool):
     # batch["query_tokens"] --> query tokens
     # batch["doc_tokens"] --> document tokens
-    batch["query_tokens"]["tokens"]["id"] = batch["query_id"]
-    batch["doc_tokens"]["tokens"]["id"] = batch["doc_id"]
 
     if onGPU:
         batch["query_tokens"]["tokens"]["tokens"] = batch["query_tokens"]["tokens"]["tokens"].to(device="cuda")

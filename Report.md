@@ -6,9 +6,6 @@ Student 2: 1129115, Kaufmann Thomas:
 
 Student 3: 11777780, Kowarsch Florian:
 
-
-* Task 1: lookup training losses in wandb for the table
-* Task 1: one line about the hyper params for the different models
 # Report
 
 ## Part 1
@@ -79,13 +76,18 @@ Despite this interesting results one has to question if more efficient models th
 
 The implemented re-ranking models were trained with the MSMARCO training set consisting of 2.4e^6 samples and evaluated against the coarse grained MSMARCO and the more fine-grained FIRA labelsets.
 Training was conducted with batch sizes of 128 and hyper-parameters were chosen depending on the particular model at hand. 
-For KNRM, a learning rate of 0.001 was selected in accordance to the paper and weight decay was set to 0.01. 
-For ... < fill me in> ...
+The following hyper-parameters were chosen for the respective models.
 
-The following table compares training loss and MRR@10 on validation and test sets for the implemented models. 
+| Model | Learning Rate | Weight Decay |
+| -----:|-------:|-------:|
+| KNRM | 0.001 | 0.01 | 
+| Conv-KNRM | 0.001 | 1e-15 |
+| TK | 0.0001 | 1e-16 | 
+| FK | 0.0001 | 0.0001 |
 
+The following table compares training loss and MRR@10 on validation and test sets for the implemented models.
 In general, it can be observed that model complexity and thus the expressiveness goes in accordance with its quality in terms of the MRR@10 statistic.
-todo add some interpretation...
+Even more, some decay can be observed between validation and test set, which is in this degree not unusual. 
 
 
 | Model | Test-Set | Training Batch Size |  Training Loss    |  Validation MRR@10 | Test MRR@10  |
