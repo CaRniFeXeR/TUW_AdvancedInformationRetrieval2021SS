@@ -160,26 +160,26 @@ The query *"___ is the ability of cardiac pacemaker cells to spontaneously initi
 The following figure shows the result of TK Model on the left side and the result of FK Model on the right side.
 You can see that FK lags to identify some significant words related to the current query (e.g. *heart*), while TK mostly identified important words. It is very interesting that TK associates the first occurrence of *heart* with *being*, while the second occurrence, which is located next to *cardiac* is related to *cardiac*.
 
-![_](./documents/report_heart_query_overall.png)
+![_](./documents/viz_report_heart_query_overall.png)
 
 In the following figure we can clearly see that FK does not associates *cardiac* with obvious choose *heart*.
 
-![_](./documents/report_heart_query_overall_cardiac.png)
+![_](./documents/viz_report_heart_query_overall_cardiac.png)
 
 Further examples indicate that FK lags in finding contextual similarities in the document. For instance, for the word *being* TK correctly finds similarities to *body*, *is* and *heart*, while FK only associates it with *cardiac*.
 
-![_](./documents/report_heart_query_overall_being.png)
+![_](./documents/viz_report_heart_query_overall_being.png)
 
 But there are also examples for which FK clearly catches the context of the query better than TK. In the following figure we see that FK associates *pacemaker* with *implanted*, *impulses* and *pacemaker* while TK only indicates *pacemaker* in the document.
 
-![_](./documents/report_heart_query_overall_pacemaker.png)
+![_](./documents/viz_report_heart_query_overall_pacemaker.png)
 
 Another good comparison is served by a document form the query "*how long does it take for the earth to make one revolution?*". For instance, as shown in the following figure, model FK seems to over weight similarities with *how*:
 
-![_](./documents/report_revolution_query_how.png)
+![_](./documents/viz_report_revolution_query_how.png)
 
 In the same query-doc pair we can see an example how FK seems to capture certain relationships, but weights them less strongly that TK. TK shows similarity from *long* in the query to *long*, *hour* (*day* and *cycles*) in the document while FK actual also captures this relationships but indicates them with much lower similarity. This is especially interesting since the FK actual has a lower alpha value of 0.73 compared to TK 0.82 indicating that model FK learned to integrate the contextualization 
-![_](./documents/report_revolution_query_long.png)
+![_](./documents/viz_report_revolution_query_long.png)
 
 ### Conclusion
 
